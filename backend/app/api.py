@@ -1,4 +1,5 @@
 from pathlib import Path
+from itertools import zip_longest
 from urllib.parse import urlparse
 from typing import List, Optional
 
@@ -162,7 +163,12 @@ def _serialize_tag(tag: Tag) -> TagOut:
     )
 
 
-def _source_website_name(source: SourceUrl) -> Optional[str]:
+def _platform_label_for_pair(price: Optional[Price], source: Optional[SourceUrl]) -> Optional[str]:
+    if price and price.platform:
+        label = price.platform.strip().lower()
+        return label or None
+    if not source:
+        return None
     value = (source.domain or source.url or "").strip()
     if not value:
         return None
@@ -173,6 +179,17 @@ def _source_website_name(source: SourceUrl) -> Optional[str]:
         return "vinted"
     parts = [part for part in host.split(".") if part]
     return parts[0] if parts else None
+
+
+def _product_source_labels(session: Session, product_id: int) -> List[str]:
+    prices = session.exec(select(Price).where(Price.product_id == product_id).order_by(Price.added_at.desc())).all()
+    source_urls = session.exec(select(SourceUrl).where(SourceUrl.product_id == product_id).order_by(SourceUrl.added_at.desc())).all()
+    labels: List[str] = []
+    for price, source in zip_longest(prices, source_urls):
+        label = _platform_label_for_pair(price, source)
+        if label:
+            labels.append(label)
+    return labels
 
 
 def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
@@ -286,9 +303,9 @@ def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, ta
         if source_site:
             source_site_lower = source_site.strip().lower()
             matching_product_ids = [
-                source.product_id
-                for source in session.exec(select(SourceUrl)).all()
-                if _source_website_name(source) == source_site_lower
+                product.id
+                for product in session.exec(query.distinct()).all()
+                if source_site_lower in _product_source_labels(session, product.id)
             ]
             query = query.where(Product.id.in_(matching_product_ids or [-1]))
         products = session.exec(query.distinct().order_by(Product.created_at.desc()).offset(offset).limit(limit)).all()
@@ -530,13 +547,11 @@ def tags_stats():
 @app.get("/api/sourcewebsites/stats", response_model=SourceWebsitesStatsOut)
 def source_websites_stats():
     with Session(engine) as session:
-        source_urls = session.exec(select(SourceUrl)).all()
         counts: Dict[str, int] = {}
-        for source in source_urls:
-            name = _source_website_name(source)
-            if not name:
-                continue
-            counts[name] = counts.get(name, 0) + 1
+        products = session.exec(select(Product)).all()
+        for product in products:
+            for name in _product_source_labels(session, product.id):
+                counts[name] = counts.get(name, 0) + 1
 
         websites = [
             SourceWebsiteOut(name=name, count=count)
