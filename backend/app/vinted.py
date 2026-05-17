@@ -247,6 +247,20 @@ def scrape_vinted(url: str):
 	# Orari
 	now = datetime.now().isoformat()
 
+	# Evita di creare prodotti per pagine non disponibili o con titoli vuoti/404
+	bad_title = False
+	if not title or title.strip() == "":
+		bad_title = True
+	elif re.search(r"\b404\b", title, re.I) or re.search(r"not found|pagina non trovata|non trovato|not available", title, re.I):
+		bad_title = True
+	# Controllo anche il contenuto HTML per indicatori di pagina mancante
+	if not bad_title:
+		if re.search(r"\b404\b|not found|pagina non trovata|item not found|non disponibile", html, re.I):
+			bad_title = True
+	if bad_title:
+		log_vinted(f'Skipping creation: page appears unavailable or invalid title (title="{title}")')
+		return False
+
 	# Salva tramite API
 	try:
 		# 1. Crea prodotto

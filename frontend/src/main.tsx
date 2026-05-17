@@ -81,6 +81,45 @@ function formatMoney(amount?: number | null, currency?: string | null) {
   }).format(amount);
 }
 
+function derivePlatformLabel(
+  price: { platform?: string | null } | null | undefined,
+  source?: { domain?: string | null; url?: string } | null | undefined,
+) {
+  if (price && price.platform) return price.platform;
+  if (!source) return "—";
+  const domain = source.domain || source.url || "";
+  try {
+    const u = domain.startsWith("http") ? new URL(domain) : new URL("http://" + domain);
+    const host = u.hostname || domain;
+    if (/vinted/i.test(host)) return "vinted";
+    const parts = host.replace(/^www\./, "").split(".");
+    return parts[0] || "—";
+  } catch (e) {
+    if (/vinted/i.test(domain)) return "vinted";
+    return (domain || "—").split(".")[0] || "—";
+  }
+}
+
+function collectWebsites(detail: ProductDetail | null) {
+  if (!detail) return [] as string[];
+  const set = new Set<string>();
+  for (const s of detail.source_urls || []) {
+    const host = (s.domain || s.url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+    if (host) set.add(host.toLowerCase());
+  }
+  for (const p of detail.prices || []) {
+    const label = (p.platform || "").trim();
+    if (label) set.add(label.toLowerCase());
+  }
+  // if empty, try derive from matching source_urls domains that contain known hosts (vinted)
+  if (set.size === 0) {
+    for (const s of detail.source_urls || []) {
+      if (/vinted/i.test(s.url || s.domain || "")) set.add("vinted");
+    }
+  }
+  return Array.from(set).map((s) => s);
+}
+
 function makeEmptyPrice() {
   return { id: 0, amount: 0, currency: "EUR", platform: "", sold: false };
 }
@@ -362,7 +401,7 @@ function App() {
         <StatCard label="Prodotti" value={stats.products} />
         <StatCard label="Immagini" value={stats.images} />
         <StatCard label="Prezzi" value={stats.prices} />
-        <StatCard label="Source URL" value={stats.sources} />
+        <StatCard label="Source websites" value={stats.sources} />
         <StatCard
           label="Tag"
           value={stats.tags}
@@ -751,6 +790,13 @@ function App() {
                       selected.latest_currency,
                     )}
                   />
+                    <Kpi
+                      label="Source websites"
+                      value={(() => {
+                        const sites = collectWebsites(selected);
+                        return sites.length ? sites.join(", ") : "—";
+                      })()}
+                    />
                   <Kpi label="Creato" value={formatDate(selected.created_at)} />
                   <Kpi
                     label="Scansionato"
@@ -995,9 +1041,9 @@ function App() {
               </div>
 
               <div className="two-columns">
-                <div>
+                <div style={{ gridColumn: "1 / -1" }}>
                   <h4>Prezzi e link</h4>
-                  <ul className="info-list">
+                  <ul className="info-list prices-grid">
                     {editing && draft
                       ? Array.from({
                           length: Math.max(
@@ -1009,7 +1055,7 @@ function App() {
                           const currentSource = draft.source_urls[idx] ?? null;
 
                           return (
-                            <li key={`pair-${idx}`}>
+                            <li key={`pair-${idx}`} className="editing-row">
                               <div
                                 style={{
                                   display: "grid",
@@ -1044,6 +1090,7 @@ function App() {
                                       };
                                       setDraft(copy);
                                     }}
+                                    className="input"
                                     style={{ width: 110 }}
                                   />
                                   <input
@@ -1056,6 +1103,7 @@ function App() {
                                       };
                                       setDraft(copy);
                                     }}
+                                    className="input"
                                     style={{ width: 80 }}
                                   />
                                   <input
@@ -1069,6 +1117,7 @@ function App() {
                                       setDraft(copy);
                                     }}
                                     placeholder="piattaforma"
+                                    className="input"
                                     style={{ flex: 1, minWidth: 140 }}
                                   />
                                 </div>
@@ -1092,6 +1141,7 @@ function App() {
                                       setDraft(copy);
                                     }}
                                     placeholder="link annuncio"
+                                    className="input"
                                     style={{ flex: 1, minWidth: 240 }}
                                   />
                                   <button
@@ -1167,12 +1217,12 @@ function App() {
                             </li>
                           );
                         })
-                      : selected.prices.map((price, idx) => (
-                          <li key={price.id}>
+                          : selected.prices.map((price, idx) => (
+                            <li key={price.id}>
                             <strong>
                               {formatMoney(price.amount, price.currency)}
                             </strong>
-                            <span>{price.platform || "—"}</span>
+                            <span>{derivePlatformLabel(price, selected.source_urls[idx])}</span>
                             <small>{formatDate(price.added_at)}</small>
                             {selected.source_urls[idx] && (
                               <a
@@ -1186,39 +1236,30 @@ function App() {
                             )}
                           </li>
                         ))}
+                      {/* extra source_urls (when there are more sources than prices) */}
+                      {!editing &&
+                        selected.source_urls.length > selected.prices.length &&
+                        selected.source_urls
+                          .slice(selected.prices.length)
+                          .map((source) => (
+                            <li key={source.id}>
+                              <a href={source.url} target="_blank" rel="noreferrer">
+                                {source.domain || source.url}
+                              </a>
+                              <small>{formatDate(source.added_at)}</small>
+                            </li>
+                          ))}
 
-                    {(selected || editing) && (
-                      <li>
-                        <button className="button" onClick={appendEditablePair}>
-                          +
-                        </button>
-                      </li>
-                    )}
-                  </ul>
+                      {(selected || editing) && (
+                        <li className={editing ? "editing-row" : undefined}>
+                          <button className="button" onClick={appendEditablePair}>
+                            +
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
                 </div>
-
-                <div>
-                  <h4>Source URL</h4>
-                  <ul className="info-list">
-                    {!editing &&
-                      selected.source_urls.length > selected.prices.length &&
-                      selected.source_urls
-                        .slice(selected.prices.length)
-                        .map((source) => (
-                          <li key={source.id}>
-                            <a
-                              href={source.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {source.domain || source.url}
-                            </a>
-                            <small>{formatDate(source.added_at)}</small>
-                          </li>
-                        ))}
-                  </ul>
-                </div>
-              </div>
             </>
           ) : (
             <div className="empty-state">

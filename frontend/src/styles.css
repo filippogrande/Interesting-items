@@ -370,6 +370,25 @@ select optgroup { color: #94a3b8; }
   gap: 18px;
 }
 
+/* Prices list presented as two columns */
+.prices-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+.prices-grid li {
+  display: block;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.prices-grid li.editing-row {
+  grid-column: 1 / -1;
+}
+
 .info-list {
   list-style: none;
   padding: 0;
@@ -388,6 +407,20 @@ select optgroup { color: #94a3b8; }
 
 .info-list a {
   word-break: break-word;
+}
+
+/* Make links inside info-list visually consistent with the app theme */
+.info-list a {
+  display: inline-block;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.06);
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  border: 1px solid rgba(59,130,246,0.08);
+}
+.info-list a:hover {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.06));
 }
 
 .info-list strong {
