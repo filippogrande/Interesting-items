@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 ALLOWED_TELEGRAM_USER_IDS = os.getenv("ALLOWED_TELEGRAM_USER_IDS")  # comma separated ints
+BASE_URL = os.getenv("BASE_URL", "http://localhost:3002")
 
 redis_conn = Redis.from_url(REDIS_URL)
 q = Queue(connection=redis_conn)
@@ -199,6 +200,23 @@ async def handle_message(message: types.Message):
         if not normalized:
             await message.reply(f"URL non valido: {raw_url}")
             continue
+        # prima di aggiungere in coda, controlla se esiste già nel DB
+        try:
+            from storage.db import Session, SourceUrl
+            from sqlmodel import select
+            with Session() as session:
+                existing = session.exec(select(SourceUrl).where(SourceUrl.url == normalized)).first()
+                if existing:
+                    product_id = existing.product_id
+                    # costruisci link interno usando BASE_URL (configurabile via .env)
+                    internal_ui = BASE_URL.rstrip('/') + f"/dashboard/products/{product_id}"
+                    internal_api = BASE_URL.rstrip('/') + f"/api/dashboard/products/{product_id}"
+                    await message.reply(
+                        f"⚠️ Il prodotto è già presente nel database (id={product_id}).\nLo trovi qui: {internal_ui}\nAPI: {internal_api}")
+                    continue
+        except Exception:
+            # in caso di errore nel controllo DB, loggare ma proseguire con l'aggiunta in coda
+            logger.exception("Errore controllo duplicati URL")
         try:
             parsed = urlparse(normalized)
             if not is_allowed_domain(parsed.netloc):

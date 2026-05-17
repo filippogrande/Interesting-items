@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from xml.etree.ElementTree import Element, SubElement, ElementTree
+import traceback
 
 from storage import db as storage_db
 
@@ -42,7 +43,7 @@ def download_rendered_html(url: str, html_path: str):
 			browser.close()
 		return True
 	except Exception as e:
-		log_vinted(f'Errore Playwright: {e}')
+		log_vinted(f'Errore Playwright: {e} - ' + traceback.format_exc())
 		return False
 
 def scrape_vinted(url: str):
@@ -90,6 +91,7 @@ def scrape_vinted(url: str):
 	h1 = soup.find('h1')
 	if h1:
 		title = h1.get_text(strip=True)
+	log_vinted(f'Parsed title: "{title}"')
 
 	# Descrizione: fallback meta description o primo paragrafo dopo titolo
 	meta_desc = soup.find('meta', attrs={'name': 'description'})
@@ -151,9 +153,8 @@ def scrape_vinted(url: str):
 			path = parsed.path.lower()
 			if '/t/' in path or '/f800/' in src or re.search(r'/f\d+/', path):
 				alt = (img.get('alt') or '').strip()
-				# Escludi immagini con alt vuoto (probabilmente avatar/profilo)
-				if not alt:
-					continue
+				# Non escludere immagini solo perché l'alt è vuoto: alcuni annunci non popolano alt
+				# Mantieni comunque l'alt (può essere vuoto)
 				img_urls.append((src, alt))
 
 	# de-dup e mantieni ordine
@@ -200,6 +201,7 @@ def scrape_vinted(url: str):
 						imgf.write(c)
 				size_bytes = os.path.getsize(fpath)
 				image_filenames.append(fname)
+				log_vinted(f'Immagine scaricata: {fname}')
 				# infer type
 				inferred = 'product_image' if 'images1.vinted.net' in img_url or 'images.vinted' in img_url else 'asset'
 				images_meta.append({
@@ -259,6 +261,14 @@ def scrape_vinted(url: str):
 			bad_title = True
 	if bad_title:
 		log_vinted(f'Skipping creation: page appears unavailable or invalid title (title="{title}")')
+		# salva HTML per ispezione
+		try:
+			problem_path = f'storage/problem_item_{item_id}.html'
+			with open(problem_path, 'w', encoding='utf-8') as pf:
+				pf.write(html)
+			log_vinted(f'HTML salvato per ispezione: {problem_path}')
+		except Exception as e:
+			log_vinted(f'Errore salvataggio HTML per ispezione: {e}')
 		return False
 
 	# Salva tramite API

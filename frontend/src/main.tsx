@@ -149,6 +149,7 @@ const TAG_KIND_LABELS: Record<Tag["kind"], string> = {
 const TAG_KIND_ORDER: Tag["kind"][] = ["taxonomy", "store", "project"];
 
 function App() {
+  const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.4";
   const [products, setProducts] = useState<ProductSummary[]>([]);
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -794,7 +795,11 @@ function App() {
                       label="Source websites"
                       value={(() => {
                         const sites = collectWebsites(selected);
-                        return sites.length ? sites.join(", ") : "—";
+                        // Escludi vinted/vinted.it dalla vista dettaglio se presente
+                        const filtered = sites.filter(
+                          (s) => !/^vinted(\.it)?$/i.test(s.trim()),
+                        );
+                        return filtered.length ? filtered.join(", ") : "—";
                       })()}
                     />
                   <Kpi label="Creato" value={formatDate(selected.created_at)} />
@@ -1268,6 +1273,7 @@ function App() {
           )}
         </section>
       </main>
+      <footer className="app-footer">Versione: {appVersion}</footer>
     </div>
   );
 }

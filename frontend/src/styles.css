@@ -458,3 +458,10 @@ select optgroup { color: #94a3b8; }
     height: 220px;
   }
 }
+
+.app-footer {
+  margin-top: 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
