@@ -561,7 +561,8 @@ function App() {
                   className="button danger"
                   onClick={async () => {
                     if (!selected) return;
-                    if (!confirm("Eliminare definitivamente questo prodotto?")) return;
+                    if (!confirm("Eliminare definitivamente questo prodotto?"))
+                      return;
                     try {
                       const resp = await fetch(`/api/products/${selected.id}`, {
                         method: "DELETE",
@@ -570,11 +571,17 @@ function App() {
                         throw new Error(`HTTP ${resp.status}`);
                       }
                       // refresh lista e dettagli
-                      await loadProducts(selectedTagId as number | "" | "untagged");
+                      await loadProducts(
+                        selectedTagId as number | "" | "untagged",
+                      );
                       setSelected(null);
                       setDraft(null);
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : "Errore eliminazione prodotto");
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : "Errore eliminazione prodotto",
+                      );
                     }
                   }}
                   style={{ padding: "6px 10px", fontSize: 16 }}

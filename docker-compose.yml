@@ -1,9 +1,7 @@
 services:
   app:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: ${DOCKERHUB_USERNAME:-filippogrande}/interesting-items:backend-latest
+    image: filippogrande/interesting-items:backend-latest
+    pull_policy: always
     ports:
       - "8004:8004"
     environment:
@@ -12,9 +10,9 @@ services:
       - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/products
     volumes:
-      - ./backend/storage:/app/storage
-      - images_data:/app/images
-      - ./backend/tmp:/app/tmp
+      - /mnt/applicazioni/interesting-items/storage_data:/app/storage_data
+      - /mnt/applicazioni/interesting-items/images:/app/images
+      - /mnt/applicazioni/interesting-items/tmp:/app/tmp
     restart: unless-stopped
 
   db:
@@ -24,24 +22,20 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: products
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - /mnt/applicazioni/interesting-items/db_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7
     volumes:
       - redis_data:/data
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: ${DOCKERHUB_USERNAME:-filippogrande}/interesting-items:frontend-latest
+    image: filippogrande/interesting-items:frontend-latest
+    pull_policy: always
     ports:
-      - "3000:80"
+      - "3002:80"
     depends_on:
       - app
     restart: unless-stopped
 volumes:
-  db_data:
   redis_data:
-  images_data:
 

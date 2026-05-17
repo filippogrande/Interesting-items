@@ -47,8 +47,8 @@ class Category(SQLModel, table=True):
 
 
 class ProductTagLink(SQLModel, table=True):
-    product_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("product.id", ondelete="CASCADE")), primary_key=True)
-    tag_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("tag.id", ondelete="CASCADE")), primary_key=True)
+    product_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("product.id", ondelete="CASCADE"), primary_key=True))
+    tag_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True))
 
 
 class Tag(SQLModel, table=True):
