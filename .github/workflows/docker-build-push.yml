@@ -37,9 +37,10 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/interesting-items:backend-latest
             ${{ secrets.DOCKERHUB_USERNAME }}/interesting-items:backend-${{ github.sha }}
 
+      - name: Set frontend version env file
+        run: echo "VITE_APP_VERSION=${{ env.FRONTEND_VERSION }}" > frontend/.env
+
       - name: Build and push frontend image
-        - name: Set frontend version env file
-          run: echo "VITE_APP_VERSION=${{ env.FRONTEND_VERSION }}" > frontend/.env
         uses: docker/build-push-action@v4
         with:
           context: ./frontend
