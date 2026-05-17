@@ -18,12 +18,15 @@ def get_item_id_from_url(url: str) -> str:
 	return match.group(1) if match else 'unknown'
 
 def log_vinted(msg: str):
-       base_dir = os.path.dirname(os.path.abspath(__file__))
-       data_dir = os.path.join(base_dir, 'app_data')
-       os.makedirs(data_dir, exist_ok=True)
-       log_path = os.path.join(data_dir, 'log.txt')
-       with open(log_path, 'a', encoding='utf-8') as logf:
-	       logf.write(f'{datetime.now().isoformat()} {msg}\n')
+	entry = f'{datetime.now().isoformat()} {msg}'
+	# Mirror logs to stdout so they are visible via docker compose logs.
+	print(entry, flush=True)
+	base_dir = os.path.dirname(os.path.abspath(__file__))
+	data_dir = os.path.join(base_dir, 'app_data')
+	os.makedirs(data_dir, exist_ok=True)
+	log_path = os.path.join(data_dir, 'log.txt')
+	with open(log_path, 'a', encoding='utf-8') as logf:
+		logf.write(entry + '\n')
 
 def download_rendered_html(url: str, html_path: str):
 	try:
@@ -251,16 +254,29 @@ def scrape_vinted(url: str):
 
 	# Evita di creare prodotti per pagine non disponibili o con titoli vuoti/404
 	bad_title = False
+	bad_reason = ''
 	if not title or title.strip() == "":
 		bad_title = True
+		bad_reason = 'missing title'
 	elif re.search(r"\b404\b", title, re.I) or re.search(r"not found|pagina non trovata|non trovato|not available", title, re.I):
 		bad_title = True
-	# Controllo anche il contenuto HTML per indicatori di pagina mancante
+		bad_reason = 'invalid title marker'
+	# Fallback su testo pagina: applicalo solo quando i segnali principali sono deboli
+	# (es. titolo mancante o nessuna immagine), per evitare falsi positivi su pagine valide.
 	if not bad_title:
-		if re.search(r"\b404\b|not found|pagina non trovata|item not found|non disponibile", html, re.I):
+		page_text = soup.get_text(' ', strip=True).lower()
+		page_not_found_markers = [
+			'this page could not be found',
+			'pagina non trovata',
+			'item not found',
+			'annuncio non disponibile',
+		]
+		weak_page_signals = (not title) or (len(image_links) == 0 and price_val <= 0)
+		if weak_page_signals and any(marker in page_text for marker in page_not_found_markers):
 			bad_title = True
+			bad_reason = 'page text not-found marker with weak extraction signals'
 	if bad_title:
-		log_vinted(f'Skipping creation: page appears unavailable or invalid title (title="{title}")')
+		log_vinted(f'Skipping creation: page appears unavailable or invalid title (title="{title}", reason="{bad_reason}")')
 		# salva HTML per ispezione
 		try:
 			problem_path = f'storage/problem_item_{item_id}.html'
