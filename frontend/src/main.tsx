@@ -791,17 +791,7 @@ function App() {
                       selected.latest_currency,
                     )}
                   />
-                    <Kpi
-                      label="Source websites"
-                      value={(() => {
-                        const sites = collectWebsites(selected);
-                        // Escludi vinted/vinted.it dalla vista dettaglio se presente
-                        const filtered = sites.filter(
-                          (s) => !/^vinted(\.it)?$/i.test(s.trim()),
-                        );
-                        return filtered.length ? filtered.join(", ") : "—";
-                      })()}
-                    />
+                    {/* Source websites rimossa dal dettaglio prodotto per richiesta */}
                   <Kpi label="Creato" value={formatDate(selected.created_at)} />
                   <Kpi
                     label="Scansionato"

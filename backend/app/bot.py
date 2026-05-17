@@ -202,9 +202,9 @@ async def handle_message(message: types.Message):
             continue
         # prima di aggiungere in coda, controlla se esiste già nel DB
         try:
-            from storage.db import Session, SourceUrl
-            from sqlmodel import select
-            with Session() as session:
+            from storage.db import engine, SourceUrl
+            from sqlmodel import Session, select
+            with Session(engine) as session:
                 existing = session.exec(select(SourceUrl).where(SourceUrl.url == normalized)).first()
                 if existing:
                     product_id = existing.product_id
