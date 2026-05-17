@@ -15,6 +15,11 @@ services:
       - /mnt/applicazioni/interesting-items/storage_data:/app/storage_data
       - /mnt/applicazioni/interesting-items/images:/app/images
       - /mnt/applicazioni/interesting-items/tmp:/app/tmp
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   db:
