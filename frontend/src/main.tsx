@@ -1316,8 +1316,10 @@ function App() {
                                 target="_blank"
                                 rel="noreferrer"
                               >
-                                {selected.source_urls[idx].domain ||
-                                  selected.source_urls[idx].url}
+                                {derivePlatformLabel(
+                                  undefined,
+                                  selected.source_urls[idx],
+                                )}
                               </a>
                             )}
                           </li>
@@ -1330,7 +1332,7 @@ function App() {
                           .map((source) => (
                             <li key={source.id}>
                               <a href={source.url} target="_blank" rel="noreferrer">
-                                {source.domain || source.url}
+                                {derivePlatformLabel(undefined, source)}
                               </a>
                               <small>{formatDate(source.added_at)}</small>
                             </li>

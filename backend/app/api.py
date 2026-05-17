@@ -285,9 +285,12 @@ def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, ta
             query = query.join(ProductTagLink, ProductTagLink.product_id == Product.id).join(Tag, Tag.id == ProductTagLink.tag_id).where(Tag.kind == tag_kind)
         if source_site:
             source_site_lower = source_site.strip().lower()
-            query = query.join(SourceUrl, SourceUrl.product_id == Product.id).where(
-                func.lower(func.coalesce(SourceUrl.domain, SourceUrl.url)).like(f"%{source_site_lower}%")
-            )
+            matching_product_ids = [
+                source.product_id
+                for source in session.exec(select(SourceUrl)).all()
+                if _source_website_name(source) == source_site_lower
+            ]
+            query = query.where(Product.id.in_(matching_product_ids or [-1]))
         products = session.exec(query.distinct().order_by(Product.created_at.desc()).offset(offset).limit(limit)).all()
         return [_serialize_summary(product, session) for product in products]
 
