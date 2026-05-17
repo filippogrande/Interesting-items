@@ -1,0 +1,47 @@
+2026-02-11T11:13:36.067240 Inizio scraping per URL: https://www.vinted.it/items/8126866415-spilla-olimpiadi-sovietiche-1980-in-mosca?referrer=catalog
+2026-02-11T11:13:36.067516 Scarico HTML renderizzato da https://www.vinted.it/items/8126866415-spilla-olimpiadi-sovietiche-1980-in-mosca?referrer=catalog...
+2026-02-11T11:13:43.889631 Immagine scaricata: image_1.webp
+2026-02-11T11:13:43.962189 Immagine scaricata: image_2.webp
+2026-02-11T11:13:44.013566 Immagine scaricata: image_3.webp
+2026-02-11T11:13:44.014030 Dati salvati in storage/product_8126866415.xml, immagini scaricate in images/product_8126866415, HTML in tmp/item_8126866415_rendered.html
+2026-02-11T11:16:44.027030 Inizio scraping per URL: https://www.vinted.it/items/8126907592-spilla-sovietica
+2026-02-11T11:16:44.031111 Scarico HTML renderizzato da https://www.vinted.it/items/8126907592-spilla-sovietica...
+2026-02-11T11:16:49.748086 Immagine scaricata: image_1.webp
+2026-02-11T11:16:49.887248 Immagine scaricata: image_2.webp
+2026-02-11T11:16:49.947081 Immagine scaricata: image_3.webp
+2026-02-11T11:16:50.004234 Immagine scaricata: image_4.webp
+2026-02-11T11:16:50.053340 Immagine scaricata: image_5.webp
+2026-02-11T11:16:50.054654 Dati salvati in storage/product_8126907592.xml, immagini scaricate in images/product_8126907592, HTML in tmp/item_8126907592_rendered.html
+2026-02-11T11:34:15.123238 Inizio scraping per URL: https://it.wallapop.com/auth/onboarding?redirectUrl=%2F
+2026-02-11T11:34:15.123948 Scarico HTML renderizzato da https://it.wallapop.com/auth/onboarding?redirectUrl=%2F...
+2026-02-11T11:34:49.430379 Errore Playwright: Timeout 30000ms exceeded.
+2026-02-11T11:34:49.430770 Errore nel download HTML.
+2026-02-11T11:57:32.537619 Inizio scraping per URL: https://www.vinted.it/items/8126879775-spilla-sovietica-lenin
+2026-02-11T11:57:32.538442 Scarico HTML renderizzato da https://www.vinted.it/items/8126879775-spilla-sovietica-lenin...
+2026-02-11T11:57:42.343253 Immagine scaricata: image_1.webp
+2026-02-11T11:57:42.414945 Immagine scaricata: image_2.webp
+2026-02-11T11:57:42.468611 Immagine scaricata: image_3.webp
+2026-02-11T11:57:42.469390 Dati salvati in storage/product_8126879775.xml, immagini scaricate in images/product_8126879775, HTML in tmp/item_8126879775_rendered.html
+2026-02-11T13:47:43.558746 Inizio scraping per URL: https://www.vinted.it/items/8126924325-spilla-originale-sovietica
+2026-02-11T13:47:43.561871 Scarico HTML renderizzato da https://www.vinted.it/items/8126924325-spilla-originale-sovietica...
+2026-02-11T13:47:56.091123 Errore salvataggio DB: name 'title' is not defined
+2026-02-11T13:49:36.781937 Inizio scraping per URL: https://www.vinted.it/items/8126924325-spilla-originale-sovietica
+2026-02-11T13:49:36.785660 Scarico HTML renderizzato da https://www.vinted.it/items/8126924325-spilla-originale-sovietica...
+2026-02-11T13:49:46.744846 Dati salvati su DB SQLite. Immagini in images/product_8126924325
+2026-02-11T14:31:09.884739 Inizio scraping per URL: https://www.vinted.it/items/8126924325-spilla-originale-sovietica
+2026-02-11T14:31:09.935489 Scarico HTML renderizzato da https://www.vinted.it/items/8126924325-spilla-originale-sovietica...
+2026-02-11T14:31:17.784397 Dati salvati su DB SQLite. Immagini in images/product_8126924325
+2026-02-11T15:58:19.534329 Inizio scraping per URL: https://www.vinted.it/items/8126924325-spilla-originale-sovietica
+2026-02-11T15:58:19.536641 Scarico HTML renderizzato da https://www.vinted.it/items/8126924325-spilla-originale-sovietica...
+2026-02-11T15:58:24.608370 Errore chiamate API: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/products (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1070bc980>: Failed to establish a new connection: [Errno 61] Connection refused'))
+2026-02-11T16:08:41.817694 Inizio scraping per URL: https://www.vinted.it/items/8126924325-spilla-originale-sovietica
+2026-02-11T16:08:41.822096 Scarico HTML renderizzato da https://www.vinted.it/items/8126924325-spilla-originale-sovietica...
+2026-02-11T16:08:45.544286 Errore chiamate API: HTTPConnectionPool(host='localhost', port=8004): Max retries exceeded with url: /api/products (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1060bc980>: Failed to establish a new connection: [Errno 61] Connection refused'))
+2026-02-16T21:32:23.558168 Inizio scraping per URL: https://www.vinted.it/items/8143733616-the-legend-of-zelda-skyword-sword?referrer=catalog
+2026-02-16T21:32:23.567045 Scarico HTML renderizzato da https://www.vinted.it/items/8143733616-the-legend-of-zelda-skyword-sword?referrer=catalog...
+2026-02-16T21:32:23.567813 Playwright non installato. Installa con: pip install playwright
+2026-02-16T21:32:23.568043 Errore nel download HTML.
+2026-02-16T21:39:45.362233 Inizio scraping per URL: https://www.vinted.it/items/8143733616-the-legend-of-zelda-skyword-sword?referrer=catalog
+2026-02-16T21:39:45.365461 Scarico HTML renderizzato da https://www.vinted.it/items/8143733616-the-legend-of-zelda-skyword-sword?referrer=catalog...
+2026-02-16T21:39:45.365780 Playwright non installato. Installa con: pip install playwright
+2026-02-16T21:39:45.365933 Errore nel download HTML.

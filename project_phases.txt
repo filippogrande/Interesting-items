@@ -1,0 +1,156 @@
+Progetto: Web + Telegram Bot per scraping prodotti
+
+Obiettivo:
+Ricevere link di prodotti via Telegram; il bot scarica immagini, titolo e descrizione; salva tutto in un DB server-side e in localStorage del client; la pagina web mostra le entry, permette modifiche manuali e inserimento di prezzi trovati online.
+
+Fasi dettagliate (sequenza consigliata)
+
+1) Definire requisiti e scope (essenziale)
+- Output minimo: titolo, descrizione, 1..N immagini, URL sorgente, timestamp, stato (nuovo/modificato), prezzo (opzionale)
+- Volume atteso: quanti link/giorno? (utile per progettare code/rate-limit)
+- Requisiti legali: rispettare robots.txt e ToS dei siti target; ottenere consenso per scraping dove necessario
+- Privilegi: dati personali? no — disabilitare raccolta di dati sensibili
+
+2) Scegliere stack tecnologico
+- Backend + bot: Python 3.11+ con FastAPI (API REST) e `aiogram` o `python-telegram-bot` per il bot (consiglio: `aiogram` se usi async)
+- Scraping: Playwright (headless) per pagine dinamiche; BeautifulSoup + requests per siti statici
+- DB: SQLite per sviluppo; PostgreSQL per produzione
+- ORM: SQLAlchemy (async) o Tortoise ORM
+- Task queue: Redis + RQ o Celery (consiglio: RQ più semplice, Celery per carichi maggiori)
+- Frontend: React (Vite) o Svelte; usare Fetch/XHR per comunicare con API
+- Local browser storage: IndexedDB per dati strutturati o `localStorage` per semplicità (IndexedDB raccomandata per oggetti complessi)
+- Contenitori: Docker (Dockerfile + docker-compose)
+
+3) Struttura del repository e ambiente di sviluppo
+- Monorepo semplice:
+  - backend/ (FastAPI, bot, scraping, DB models)
+  - frontend/ (React)
+  - infra/ (docker-compose.yml, .env.example)
+  - docs/ (README, design, API spec)
+- Usare `.env` per segreti (TOKEN_BOT, DATABASE_URL, REDIS_URL)
+- Git: branch `main` per prod, `dev` per sviluppo
+
+4) Progettare DB e API
+- Tabelle minime: products(id, title, description, images json[], source_url, scraped_at, user_price, status, metadata json)
+- Indici su `source_url`, `scraped_at`
+- API endpoints (autenticati):
+  - POST /api/products (crea/aggiorna)
+  - GET /api/products (lista, filtro, paginazione)
+  - GET /api/products/{id}
+  - PUT /api/products/{id} (modifica manuale)
+  - DELETE /api/products/{id}
+  - POST /api/sync-local (opzionale: sincronizza localStorage -> server)
+
+5) Implementare bot Telegram (skeleton)
+- Modalità: polling (facile) o webhook (per deploy su cloud)
+- Flussi:
+  - /start e help
+  - Ricevere messaggi: riconoscere URL; validare dominio/URL
+  - Per ogni URL: push job a queue di scraping; rispondere all'utente con stato (accettato, errore)
+- Rispettare rate limits: limitare richieste per utente se necessario
+
+6) Implementare modulo di scraping
+- Strategia:
+  - Prima tentata: richiesta HTTP + parsing (fast)
+  - Se JS-heavy: Playwright headless
+- Dati da estrarre: meta title, h1 fallback, meta description, og:image, schema.org Product (se presente)
+- Immagini: preferire immagini di prodotto grandi (analisi dimensione/filetype)
+- Scaricare immagini: salvarle su filesystem server (`/media/images/<hash>.jpg`) o su cloud (S3) in produzione; memorizzare path/URL nel DB
+- Error handling: timeouts, retries (exponential backoff), logging
+- Politeness: attesa random tra richieste al dominio, caching, headers (User-Agent), rispettare robots
+
+7) Storage locale (client) e sincronizzazione
+- Frontend mantiene copia locale per UX veloce:
+  - Usare IndexedDB (wrapper: idb) per memorizzare array di products
+  - Sync pattern: on page load, fetch server list -> merge con local -> usare `updated_at` per risolvere conflitti
+  - Permettere “salva locale” e “pubblica su server” per modifiche manuali
+- Evitare conflitti: mostrare avvisi di conflitto e diff semplici (server vs locale)
+
+8) Frontend: UI per mostrare e modificare entry
+- Pagine:
+  - Dashboard: lista prodotti, ricerca, filtri
+  - Product detail: immagini (carousel), titolo, descrizione, campi editabili (prezzo), pulsanti salva locale / salva server
+- UX:
+  - Stato di salvataggio (local/remote)
+  - Anteprima immagini (localmente e da server)
+  - Validazioni client (maxlength, sanitizzazione visuale)
+
+9) Integrazione prezzi esterni
+- Opzioni:
+  - Scraping mirato di pagine di confronto prezzi (con addebito legale) oppure usare API pubbliche/commerciali
+  - Implementare come job asincrono: dato product, cercare per titolo e recuperare prezzi suggeriti
+- Salvataggio: store suggerimenti prezzi in `prices` o campo `suggested_prices` nel prodotto
+
+10) Concorrenza, code e rate-limiting
+- Usare Redis + RQ/Celery per job di scraping; worker pool configurabile
+- Limiti per dominio: mantenere mappa dominio -> last_request_timestamp per evitare hammering
+- Timeout controllati e massimo tentativi
+
+11) Sicurezza e conformità
+- Proteggere API con API-key/JWT (autenticazione per interfaccia web se richiesta)
+- Validare e sanitizzare input prima di salvarli e PRIMA di renderli nel frontend
+- Non eseguire HTML scaricato direttamente: sanitizzare o renderizzare in sandbox
+- Privacy: non memorizzare dati personali senza permesso
+- Legale: log degli URL e prove che robots.txt è rispettato; se un sito vieta scraping, non farlo
+
+12) Testing
+- Unit tests per parsing HTML e per API
+- Integration tests per bot -> enqueue -> worker -> DB flow (mocking HTTP esterni)
+- E2E: testare frontend UI flows (Cypress / Playwright)
+
+13) Deployment e CI/CD
+- Dockerize backend e frontend; docker-compose per sviluppo
+- Pipeline: GitHub Actions (build, lint, test, push images)
+- Deploy:
+  - Bot + backend: VPS/Cloud provider (DigitalOcean, AWS EC2, Railway, Render)
+  - DB: managed Postgres
+  - Storage immagini: S3 / compatible
+- Manage secrets via environment variables or secret manager
+
+14) Logging, monitoraggio e backup
+- Centralizzare log (stdout -> cloudwatch / papertrail)
+- Metriche: job queue length, scraping errors rate, request latency
+- Backup DB regolari e snapshot immagini
+
+15) Documentazione e checklist di manutenzione
+- README con setup locale, variabili d'ambiente, comandi Docker
+- API spec (OpenAPI) e esempio di payload Telegram
+- Checklist: review robots.txt prima di target nuovo sito; controllo rate-limit; aggiornare dipendenze
+
+Esempio comandi iniziali (setup rapido)
+- Backend (venv):
+  python -m venv .venv
+  source .venv/bin/activate
+  pip install -r backend/requirements.txt
+- Avviare dev con docker-compose:
+  docker-compose up --build
+
+Consigli per non incontrare problemi (pratico)
+- Testare scraping su pochi URL prima di scala; monitorare errori HTTP 4xx/5xx
+- Trattare le immagini come risorse: non salvarle con nomi originali, usare hash + estensione
+- Separare storage (DB) e cache (Redis); non usare localStorage come unica fonte di verità
+- Non mescolare credenziali nel repo; includere `.env.example` e documentare tutti i segreti
+- Logging esplicito per tutti i job asincroni; alert su errori ripetuti
+
+File/structure raccomandata iniziale
+- backend/
+  - app/
+    - main.py (FastAPI)
+    - bot.py (aiogram)
+    - scrapers/
+    - models.py
+    - workers.py
+  - requirements.txt
+- frontend/
+  - src/
+  - package.json
+- docker-compose.yml
+- docs/project_phases.txt (questo file)
+
+Passi successivi che posso fare ora
+- Generare scaffolding iniziale (repo + docker-compose + FastAPI + bot skeleton)
+- Implementare schema DB e migration
+- Creare boilerplate frontend (Vite + React)
+
+---
+Fine del piano. Se vuoi, ora genero lo scaffold iniziale (backend + bot skeleton + docker-compose).
