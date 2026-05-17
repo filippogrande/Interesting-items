@@ -5,6 +5,8 @@ services:
     ports:
       - "8004:8004"
     environment:
+      # URL pubblico/di rete per costruire link interni (usato dal bot)
+      - BASE_URL=${BASE_URL:-http://localhost:3002}
       - BOT_TOKEN=${BOT_TOKEN}
       - REDIS_URL=redis://redis:6379
       - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
@@ -23,6 +25,11 @@ services:
       POSTGRES_DB: products
     volumes:
       - /mnt/applicazioni/interesting-items/db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7

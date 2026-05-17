@@ -46,6 +46,8 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
+          build-args: |
+            VITE_APP_VERSION=${{ env.FRONTEND_VERSION }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/interesting-items:frontend-latest
             ${{ secrets.DOCKERHUB_USERNAME }}/interesting-items:frontend-${{ github.sha }}
