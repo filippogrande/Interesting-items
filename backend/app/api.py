@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -68,6 +69,15 @@ class TagWithCount(TagOut):
     count: int = 0
 
 
+class SourceWebsiteOut(BaseModel):
+    name: str
+    count: int = 0
+
+
+class SourceWebsitesStatsOut(BaseModel):
+    websites: List[SourceWebsiteOut]
+
+
 class TagsStatsOut(BaseModel):
     tags: List[TagWithCount]
     untagged_count: int = 0
@@ -90,6 +100,7 @@ class ProductSummaryOut(BaseModel):
     images_count: int = 0
     prices_count: int = 0
     source_urls_count: int = 0
+    source_links_count: int = 0
     tags_count: int = 0
     cover_image_url: Optional[str] = None
     latest_price: Optional[float] = None
@@ -151,6 +162,19 @@ def _serialize_tag(tag: Tag) -> TagOut:
     )
 
 
+def _source_website_name(source: SourceUrl) -> Optional[str]:
+    value = (source.domain or source.url or "").strip()
+    if not value:
+        return None
+    parsed = urlparse(value if value.startswith("http") else f"https://{value}")
+    host = (parsed.hostname or parsed.netloc or value).lower().strip()
+    host = host.replace("www.", "")
+    if "vinted" in host:
+        return "vinted"
+    parts = [part for part in host.split(".") if part]
+    return parts[0] if parts else None
+
+
 def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
     images = session.exec(select(Image).where(Image.product_id == product.id)).all()
     prices = session.exec(select(Price).where(Price.product_id == product.id).order_by(Price.added_at.desc())).all()
@@ -176,6 +200,7 @@ def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
         images_count=len(images),
         prices_count=len(prices),
         source_urls_count=len(source_urls),
+        source_links_count=len(source_urls),
         tags_count=len(tags),
         cover_image_url=_to_media_url(cover.filename) if cover else None,
         latest_price=latest_price.amount if latest_price else None,
@@ -248,7 +273,7 @@ def list_products(q: Optional[str] = None, limit: int = 20, offset: int = 0):
 
 
 @app.get("/api/dashboard/products", response_model=List[ProductSummaryOut])
-def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, tag_kind: Optional[TagKind] = None, limit: int = 50, offset: int = 0):
+def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, tag_kind: Optional[TagKind] = None, source_site: Optional[str] = None, limit: int = 50, offset: int = 0):
     with Session(engine) as session:
         query = select(Product)
         if q:
@@ -258,7 +283,12 @@ def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, ta
             query = query.join(ProductTagLink, ProductTagLink.product_id == Product.id).where(ProductTagLink.tag_id.in_(tag_ids))
         if tag_kind:
             query = query.join(ProductTagLink, ProductTagLink.product_id == Product.id).join(Tag, Tag.id == ProductTagLink.tag_id).where(Tag.kind == tag_kind)
-        products = session.exec(query.order_by(Product.created_at.desc()).offset(offset).limit(limit)).all()
+        if source_site:
+            source_site_lower = source_site.strip().lower()
+            query = query.join(SourceUrl, SourceUrl.product_id == Product.id).where(
+                func.lower(func.coalesce(SourceUrl.domain, SourceUrl.url)).like(f"%{source_site_lower}%")
+            )
+        products = session.exec(query.distinct().order_by(Product.created_at.desc()).offset(offset).limit(limit)).all()
         return [_serialize_summary(product, session) for product in products]
 
 @app.get("/api/products/{product_id}", response_model=Product)
@@ -492,6 +522,24 @@ def tags_stats():
         untagged_count = sum(1 for p in products if p.id not in product_ids_with_tag)
 
         return TagsStatsOut(tags=tag_list, untagged_count=untagged_count)
+
+
+@app.get("/api/sourcewebsites/stats", response_model=SourceWebsitesStatsOut)
+def source_websites_stats():
+    with Session(engine) as session:
+        source_urls = session.exec(select(SourceUrl)).all()
+        counts: Dict[str, int] = {}
+        for source in source_urls:
+            name = _source_website_name(source)
+            if not name:
+                continue
+            counts[name] = counts.get(name, 0) + 1
+
+        websites = [
+            SourceWebsiteOut(name=name, count=count)
+            for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        return SourceWebsitesStatsOut(websites=websites)
 
 
 @app.get("/api/dashboard/products/untagged", response_model=List[ProductSummaryOut])

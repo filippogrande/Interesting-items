@@ -10,15 +10,20 @@ DB_READY=0
 for i in $(seq 1 "${DB_WAIT_MAX_ATTEMPTS}"); do
 	if python - <<'PY'
 import os
+import sys
 from sqlalchemy import create_engine, text
 
 db_url = os.getenv("DATABASE_URL")
 if not db_url:
     raise SystemExit(1)
 
-engine = create_engine(db_url, pool_pre_ping=True)
-with engine.connect() as conn:
-    conn.execute(text("SELECT 1"))
+try:
+	engine = create_engine(db_url, pool_pre_ping=True)
+	with engine.connect() as conn:
+		conn.execute(text("SELECT 1"))
+except Exception:
+	# Avoid noisy tracebacks while DB/DNS are still converging during startup.
+	sys.exit(1)
 PY
 	then
 		echo "DB raggiungibile (tentativo ${i}/${DB_WAIT_MAX_ATTEMPTS})."

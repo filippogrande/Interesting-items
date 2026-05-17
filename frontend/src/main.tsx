@@ -15,6 +15,7 @@ type ProductSummary = {
   images_count: number;
   prices_count: number;
   source_urls_count: number;
+  source_links_count?: number;
   cover_image_url?: string | null;
   latest_price?: number | null;
   latest_currency?: string | null;
@@ -30,6 +31,11 @@ type Tag = {
   kind: "taxonomy" | "store" | "project";
   parent_id?: number | null;
   tag_metadata?: string | null;
+};
+
+type SourceWebsite = {
+  name: string;
+  count: number;
 };
 
 type ProductDetail = ProductSummary & {
@@ -100,26 +106,6 @@ function derivePlatformLabel(
   }
 }
 
-function collectWebsites(detail: ProductDetail | null) {
-  if (!detail) return [] as string[];
-  const set = new Set<string>();
-  for (const s of detail.source_urls || []) {
-    const host = (s.domain || s.url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
-    if (host) set.add(host.toLowerCase());
-  }
-  for (const p of detail.prices || []) {
-    const label = (p.platform || "").trim();
-    if (label) set.add(label.toLowerCase());
-  }
-  // if empty, try derive from matching source_urls domains that contain known hosts (vinted)
-  if (set.size === 0) {
-    for (const s of detail.source_urls || []) {
-      if (/vinted/i.test(s.url || s.domain || "")) set.add("vinted");
-    }
-  }
-  return Array.from(set).map((s) => s);
-}
-
 function makeEmptyPrice() {
   return { id: 0, amount: 0, currency: "EUR", platform: "", sold: false };
 }
@@ -149,7 +135,7 @@ const TAG_KIND_LABELS: Record<Tag["kind"], string> = {
 const TAG_KIND_ORDER: Tag["kind"][] = ["taxonomy", "store", "project"];
 
 function App() {
-  const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.4";
+  const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
   const [products, setProducts] = useState<ProductSummary[]>([]);
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -163,11 +149,18 @@ function App() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedTagId, setSelectedTagId] = useState<number | "">("");
-  const [view, setView] = useState<"dashboard" | "tags">("dashboard");
+  const [selectedTagId, setSelectedTagId] = useState<number | "" | "untagged">
+    ("");
+  const [selectedSourceSite, setSelectedSourceSite] = useState<string>("");
+  const [view, setView] = useState<"dashboard" | "tags" | "sources">(
+    "dashboard",
+  );
   const [tagsStats, setTagsStats] = useState<{
     tags: Array<Tag & { count: number }>;
     untagged_count: number;
+  } | null>(null);
+  const [sourceWebsitesStats, setSourceWebsitesStats] = useState<{
+    websites: SourceWebsite[];
   } | null>(null);
 
   function appendEditablePair() {
@@ -189,7 +182,10 @@ function App() {
     }
   }
 
-  async function loadProducts(tagId?: number | "" | "untagged") {
+  async function loadProducts(
+    tagId?: number | "" | "untagged",
+    sourceSite?: string,
+  ) {
     setLoadingList(true);
     setError(null);
     try {
@@ -202,6 +198,9 @@ function App() {
         const params = new URLSearchParams({ limit: "100" });
         if (tagId !== undefined && tagId !== "") {
           params.set("tag_id", String(tagId));
+        }
+        if (sourceSite && sourceSite.trim()) {
+          params.set("source_site", sourceSite.trim());
         }
         list = await fetchJson<ProductSummary[]>(
           `/api/dashboard/products?${params.toString()}`,
@@ -265,8 +264,11 @@ function App() {
   }
 
   useEffect(() => {
-    void loadProducts(selectedTagId as number | "" | "untagged");
-  }, [selectedTagId]);
+    void loadProducts(
+      selectedTagId as number | "" | "untagged",
+      selectedSourceSite,
+    );
+  }, [selectedTagId, selectedSourceSite]);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,6 +308,19 @@ function App() {
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Errore caricamento tag stats",
+      );
+    }
+  }
+
+  async function loadSourceWebsitesStats() {
+    try {
+      const data = await fetchJson<{ websites: SourceWebsite[] }>(
+        "/api/sourcewebsites/stats",
+      );
+      setSourceWebsitesStats(data);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Errore caricamento source websites",
       );
     }
   }
@@ -368,7 +383,10 @@ function App() {
       products: products.length,
       images: products.reduce((sum, item) => sum + item.images_count, 0),
       prices: products.reduce((sum, item) => sum + item.prices_count, 0),
-      sources: products.reduce((sum, item) => sum + item.source_urls_count, 0),
+      sources: products.reduce(
+        (sum, item) => sum + (item.source_links_count ?? item.source_urls_count),
+        0,
+      ),
       tags: tags.length,
     }),
     [products, tags],
@@ -402,7 +420,14 @@ function App() {
         <StatCard label="Prodotti" value={stats.products} />
         <StatCard label="Immagini" value={stats.images} />
         <StatCard label="Prezzi" value={stats.prices} />
-        <StatCard label="Source websites" value={stats.sources} />
+        <StatCard
+          label="Source websites"
+          value={stats.sources}
+          onClick={() => {
+            setView("sources");
+            void loadSourceWebsitesStats();
+          }}
+        />
         <StatCard
           label="Tag"
           value={stats.tags}
@@ -445,6 +470,7 @@ function App() {
                 className="button"
                 onClick={() => {
                   setSelectedTagId("");
+                  setSelectedSourceSite("");
                   setView("dashboard");
                 }}
               >
@@ -455,6 +481,7 @@ function App() {
                 className="button"
                 onClick={() => {
                   setSelectedTagId("untagged");
+                  setSelectedSourceSite("");
                   setView("dashboard");
                 }}
               >
@@ -486,6 +513,7 @@ function App() {
                           className="button"
                           onClick={() => {
                             setSelectedTagId(t.id);
+                            setSelectedSourceSite("");
                             setView("dashboard");
                           }}
                         >
@@ -496,6 +524,59 @@ function App() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        ) : view === "sources" ? (
+          <section className="panel list-panel">
+            <div className="panel-header">
+              <h2>Source websites</h2>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    setView("dashboard");
+                  }}
+                >
+                  Indietro
+                </button>
+                <button
+                  className="button"
+                  onClick={() => {
+                    void loadSourceWebsitesStats();
+                  }}
+                >
+                  Aggiorna
+                </button>
+              </div>
+            </div>
+
+            {error && <div className="error-box">{error}</div>}
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <button
+                className="button"
+                onClick={() => {
+                  setSelectedTagId("");
+                  setSelectedSourceSite("");
+                  setView("dashboard");
+                }}
+              >
+                Tutti i siti ({stats.products})
+              </button>
+
+              {(sourceWebsitesStats?.websites || []).map((site) => (
+                <button
+                  key={site.name}
+                  className="button"
+                  onClick={() => {
+                    setSelectedTagId("");
+                    setSelectedSourceSite(site.name);
+                    setView("dashboard");
+                  }}
+                >
+                  {site.name} ({site.count})
+                </button>
+              ))}
             </div>
           </section>
         ) : (
@@ -513,9 +594,12 @@ function App() {
                   className="input"
                   value={selectedTagId}
                   onChange={(event) =>
-                    setSelectedTagId(
-                      event.target.value ? Number(event.target.value) : "",
-                    )
+                    {
+                      setSelectedTagId(
+                        event.target.value ? Number(event.target.value) : "",
+                      );
+                      setSelectedSourceSite("");
+                    }
                   }
                 >
                   <option value="">Tutti i tag</option>
@@ -535,6 +619,12 @@ function App() {
             </div>
 
             {error && <div className="error-box">{error}</div>}
+
+            {selectedSourceSite && (
+              <div className="badge muted" style={{ marginBottom: 10 }}>
+                Filtro sito: {selectedSourceSite}
+              </div>
+            )}
 
             <div className="product-list">
               {filteredProducts.map((product) => (
@@ -613,6 +703,7 @@ function App() {
                       // refresh lista e dettagli
                       await loadProducts(
                         selectedTagId as number | "" | "untagged",
+                        selectedSourceSite,
                       );
                       setSelected(null);
                       setDraft(null);

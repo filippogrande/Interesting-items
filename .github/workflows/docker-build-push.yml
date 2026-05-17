@@ -8,7 +8,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     env:
-      FRONTEND_VERSION: v0.1.4
+      FRONTEND_VERSION: v0.1.11
 
     steps:
       - name: Checkout
