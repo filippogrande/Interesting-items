@@ -1,9 +1,13 @@
+import shutil
+import os
 from pathlib import Path
 from itertools import zip_longest
+import re
 from urllib.parse import urlparse
 from typing import List, Optional
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -21,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 IMAGES_DIR = Path(__file__).resolve().parents[1] / "images"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 if IMAGES_DIR.exists():
     app.mount("/media", StaticFiles(directory=str(IMAGES_DIR)), name="media")
@@ -163,6 +168,34 @@ def _serialize_tag(tag: Tag) -> TagOut:
     )
 
 
+def _serialize_image(image: Image) -> ImageOut:
+    return ImageOut(
+        id=image.id,
+        product_id=image.product_id,
+        filename=image.filename,
+        width=image.width,
+        height=image.height,
+        size_bytes=image.size_bytes,
+        checksum=image.checksum,
+        url=_to_media_url(image.filename),
+    )
+
+
+def _label_from_host(host: str) -> Optional[str]:
+    normalized_host = host.replace("www.", "").lower().strip()
+    if not normalized_host:
+        return None
+    if "vinted" in normalized_host:
+        return "vinted"
+    parts = [part for part in normalized_host.split(".") if part]
+    if len(parts) >= 3:
+        first = parts[0]
+        second = parts[1]
+        if re.fullmatch(r"[a-z]{2}", first) or first in {"www", "m", "it", "en", "de", "fr", "es", "nl", "pl", "pt", "uk", "us"}:
+            return second or first
+    return parts[0] if parts else None
+
+
 def _platform_label_for_pair(price: Optional[Price], source: Optional[SourceUrl]) -> Optional[str]:
     if price and price.platform:
         label = price.platform.strip().lower()
@@ -174,11 +207,7 @@ def _platform_label_for_pair(price: Optional[Price], source: Optional[SourceUrl]
         return None
     parsed = urlparse(value if value.startswith("http") else f"https://{value}")
     host = (parsed.hostname or parsed.netloc or value).lower().strip()
-    host = host.replace("www.", "")
-    if "vinted" in host:
-        return "vinted"
-    parts = [part for part in host.split(".") if part]
-    return parts[0] if parts else None
+    return _label_from_host(host)
 
 
 def _product_source_labels(session: Session, product_id: int) -> List[str]:
@@ -394,6 +423,37 @@ def create_image(image: Image):
         session.commit()
         session.refresh(image)
         return image
+
+
+@app.post("/api/products/{product_id}/images/upload", response_model=ImageOut, status_code=201)
+def upload_product_image(product_id: int, file: UploadFile = File(...)):
+    with Session(engine) as session:
+        product = session.get(Product, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        product_dir = IMAGES_DIR / f"product_{product_id}"
+        product_dir.mkdir(parents=True, exist_ok=True)
+
+        original_name = Path(file.filename or "image").name
+        suffix = Path(original_name).suffix.lower() or ".jpg"
+        safe_base = re.sub(r"[^A-Za-z0-9_.-]", "_", Path(original_name).stem) or "image"
+        stored_name = f"{uuid4().hex[:8]}_{safe_base}{suffix}"
+        stored_path = product_dir / stored_name
+
+        with stored_path.open("wb") as target:
+            shutil.copyfileobj(file.file, target)
+
+        size_bytes = stored_path.stat().st_size
+        image = Image(
+            product_id=product_id,
+            filename=os.path.join("images", f"product_{product_id}", stored_name),
+            size_bytes=size_bytes,
+        )
+        session.add(image)
+        session.commit()
+        session.refresh(image)
+        return _serialize_image(image)
 
 
 @app.patch("/api/images/{image_id}", response_model=Image)

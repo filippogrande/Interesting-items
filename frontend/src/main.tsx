@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -87,6 +87,21 @@ function formatMoney(amount?: number | null, currency?: string | null) {
   }).format(amount);
 }
 
+function labelFromHost(host: string) {
+  const normalizedHost = host.replace(/^www\./, "").toLowerCase();
+  if (!normalizedHost) return "—";
+  if (/vinted/.test(normalizedHost)) return "vinted";
+  const parts = normalizedHost.split(".").filter(Boolean);
+  if (parts.length >= 3) {
+    const first = parts[0];
+    const second = parts[1];
+    if (/^[a-z]{2}$/.test(first) || ["www", "m", "it", "en", "de", "fr", "es", "nl", "pl", "pt", "uk", "us"].includes(first)) {
+      return second || first || "—";
+    }
+  }
+  return parts[0] || normalizedHost || "—";
+}
+
 function derivePlatformLabel(
   price: { platform?: string | null } | null | undefined,
   source?: { domain?: string | null; url?: string } | null | undefined,
@@ -96,13 +111,9 @@ function derivePlatformLabel(
   const domain = source.domain || source.url || "";
   try {
     const u = domain.startsWith("http") ? new URL(domain) : new URL("http://" + domain);
-    const host = u.hostname || domain;
-    if (/vinted/i.test(host)) return "vinted";
-    const parts = host.replace(/^www\./, "").split(".");
-    return parts[0] || "—";
+    return labelFromHost(u.hostname || domain);
   } catch (e) {
-    if (/vinted/i.test(domain)) return "vinted";
-    return (domain || "—").split(".")[0] || "—";
+    return labelFromHost(domain || "");
   }
 }
 
@@ -162,6 +173,7 @@ function App() {
   const [sourceWebsitesStats, setSourceWebsitesStats] = useState<{
     websites: SourceWebsite[];
   } | null>(null);
+  const imageUploadRef = useRef<HTMLInputElement | null>(null);
 
   function appendEditablePair() {
     if (editing && draft) {
@@ -242,6 +254,37 @@ function App() {
     }
   }
 
+  async function refreshDetail(productId: number, keepEditing = false) {
+    const detail = await fetchJson<ProductDetail>(
+      `/api/dashboard/products/${productId}`,
+    );
+    setSelected(detail);
+    setDraft(keepEditing ? detail : null);
+    setEditing(keepEditing);
+    setEditingTagIds(detail.tags.map((t) => t.id));
+  }
+
+  async function deleteProductImage(imageId: number) {
+    if (!selected) return;
+    if (!confirm("Eliminare questa immagine?")) return;
+    await fetch(`/api/images/${imageId}`, { method: "DELETE" });
+    await refreshDetail(selected.id, true);
+  }
+
+  async function uploadProductImage(file: File) {
+    if (!selected) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`/api/products/${selected.id}/images/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    await refreshDetail(selected.id, true);
+  }
+
   async function toggleProductTag(
     productId: number,
     tagId: number,
@@ -285,6 +328,10 @@ function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadSourceWebsitesStats();
   }, []);
 
   async function loadTagsStats() {
@@ -383,13 +430,10 @@ function App() {
       products: products.length,
       images: products.reduce((sum, item) => sum + item.images_count, 0),
       prices: products.reduce((sum, item) => sum + item.prices_count, 0),
-      sources: products.reduce(
-        (sum, item) => sum + (item.source_links_count ?? item.source_urls_count),
-        0,
-      ),
+      sources: sourceWebsitesStats?.websites.length ?? 0,
       tags: tags.length,
     }),
-    [products, tags],
+    [products, tags, sourceWebsitesStats],
   );
 
   return (
@@ -1084,7 +1128,33 @@ function App() {
 
               <div className="gallery">
                 {selected.images.map((image) => (
-                  <div key={image.id} className="gallery-item">
+                  <div key={image.id} className="gallery-item" style={{ position: "relative" }}>
+                    {editing && (
+                      <button
+                        className="button tiny danger"
+                        onClick={() => {
+                          void deleteProductImage(image.id).catch((err) => {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Errore cancellazione immagine",
+                            );
+                          });
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          zIndex: 2,
+                          padding: "2px 6px",
+                          lineHeight: 1,
+                        }}
+                        aria-label="Elimina immagine"
+                        title="Elimina immagine"
+                      >
+                        ×
+                      </button>
+                    )}
                     {image.url ? (
                       <a href={image.url} target="_blank" rel="noreferrer">
                         <img src={image.url} alt={selected.title} />
@@ -1092,37 +1162,42 @@ function App() {
                     ) : (
                       <div className="placeholder">No image</div>
                     )}
-                    {editing && draft && (
-                      <div style={{ marginTop: 6 }}>
-                        <button
-                          className="button tiny"
-                          onClick={async () => {
-                            // delete image
-                            if (!confirm("Eliminare questa immagine?")) return;
-                            try {
-                              await fetch(`/api/images/${image.id}`, {
-                                method: "DELETE",
-                              });
-                              await loadDetail(selected.id);
-                            } catch (err) {
-                              setError(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Errore cancellazione immagine",
-                              );
-                            }
-                          }}
-                        >
-                          Elimina
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ))}
-                {!selected.images.length && (
-                  <div className="empty-state">
-                    Nessuna immagine disponibile.
+                {editing && (
+                  <div
+                    className="gallery-item"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 220 }}
+                  >
+                    <input
+                      ref={imageUploadRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        void uploadProductImage(file).catch((err) => {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Errore upload immagine",
+                          );
+                        });
+                      }}
+                    />
+                    <button
+                      className="button"
+                      onClick={() => imageUploadRef.current?.click()}
+                      style={{ width: "100%", minHeight: 220 }}
+                    >
+                      +
+                    </button>
                   </div>
+                )}
+                {!selected.images.length && !editing && (
+                  <div className="empty-state">Nessuna immagine disponibile.</div>
                 )}
               </div>
 
