@@ -95,7 +95,23 @@ function labelFromHost(host: string) {
   if (parts.length >= 3) {
     const first = parts[0];
     const second = parts[1];
-    if (/^[a-z]{2}$/.test(first) || ["www", "m", "it", "en", "de", "fr", "es", "nl", "pl", "pt", "uk", "us"].includes(first)) {
+    if (
+      /^[a-z]{2}$/.test(first) ||
+      [
+        "www",
+        "m",
+        "it",
+        "en",
+        "de",
+        "fr",
+        "es",
+        "nl",
+        "pl",
+        "pt",
+        "uk",
+        "us",
+      ].includes(first)
+    ) {
       return second || first || "—";
     }
   }
@@ -110,7 +126,9 @@ function derivePlatformLabel(
   if (!source) return "—";
   const domain = source.domain || source.url || "";
   try {
-    const u = domain.startsWith("http") ? new URL(domain) : new URL("http://" + domain);
+    const u = domain.startsWith("http")
+      ? new URL(domain)
+      : new URL("http://" + domain);
     return labelFromHost(u.hostname || domain);
   } catch (e) {
     return labelFromHost(domain || "");
@@ -160,8 +178,9 @@ function App() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedTagId, setSelectedTagId] = useState<number | "" | "untagged">
-    ("");
+  const [selectedTagId, setSelectedTagId] = useState<number | "" | "untagged">(
+    "",
+  );
   const [selectedSourceSite, setSelectedSourceSite] = useState<string>("");
   const [view, setView] = useState<"dashboard" | "tags" | "sources">(
     "dashboard",
@@ -367,7 +386,9 @@ function App() {
       setSourceWebsitesStats(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Errore caricamento source websites",
+        err instanceof Error
+          ? err.message
+          : "Errore caricamento source websites",
       );
     }
   }
@@ -402,6 +423,20 @@ function App() {
     () => new Map(tags.map((tag) => [tag.id, tag])),
     [tags],
   );
+
+  // return ancestor ids (closest parent first)
+  function getAncestorIds(tagId: number): number[] {
+    const result: number[] = [];
+    let current = tagMap.get(tagId);
+    while (current && current.parent_id) {
+      const pid = current.parent_id;
+      if (!pid) break;
+      // prepend so order is from root -> immediate parent
+      result.unshift(pid);
+      current = tagMap.get(pid);
+    }
+    return result;
+  }
 
   const tagsByKind = useMemo(() => {
     const grouped: Record<Tag["kind"], Tag[]> = {
@@ -637,14 +672,12 @@ function App() {
                 <select
                   className="input"
                   value={selectedTagId}
-                  onChange={(event) =>
-                    {
-                      setSelectedTagId(
-                        event.target.value ? Number(event.target.value) : "",
-                      );
-                      setSelectedSourceSite("");
-                    }
-                  }
+                  onChange={(event) => {
+                    setSelectedTagId(
+                      event.target.value ? Number(event.target.value) : "",
+                    );
+                    setSelectedSourceSite("");
+                  }}
                 >
                   <option value="">Tutti i tag</option>
                   {TAG_KIND_ORDER.map((kind) =>
@@ -926,7 +959,7 @@ function App() {
                       selected.latest_currency,
                     )}
                   />
-                    {/* Source websites rimossa dal dettaglio prodotto per richiesta */}
+                  {/* Source websites rimossa dal dettaglio prodotto per richiesta */}
                   <Kpi label="Creato" value={formatDate(selected.created_at)} />
                   <Kpi
                     label="Scansionato"
@@ -1092,15 +1125,20 @@ function App() {
                                   checked={isSelected}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      setEditingTagIds([
-                                        ...editingTagIds,
-                                        tag.id,
-                                      ]);
+                                      setEditingTagIds((prev) => {
+                                        const ancestors = getAncestorIds(
+                                          tag.id,
+                                        );
+                                        const merged = new Set<number>([
+                                          ...prev,
+                                          ...ancestors,
+                                          tag.id,
+                                        ]);
+                                        return Array.from(merged);
+                                      });
                                     } else {
-                                      setEditingTagIds(
-                                        editingTagIds.filter(
-                                          (id) => id !== tag.id,
-                                        ),
+                                      setEditingTagIds((prev) =>
+                                        prev.filter((id) => id !== tag.id),
                                       );
                                     }
                                   }}
@@ -1128,7 +1166,11 @@ function App() {
 
               <div className="gallery">
                 {selected.images.map((image) => (
-                  <div key={image.id} className="gallery-item" style={{ position: "relative" }}>
+                  <div
+                    key={image.id}
+                    className="gallery-item"
+                    style={{ position: "relative" }}
+                  >
                     {editing && (
                       <button
                         className="button tiny danger"
@@ -1167,7 +1209,11 @@ function App() {
                 {editing && (
                   <div
                     className="gallery-item"
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
                     <input
                       ref={imageUploadRef}
@@ -1190,14 +1236,23 @@ function App() {
                     <button
                       className="button"
                       onClick={() => imageUploadRef.current?.click()}
-                      style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34 }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 34,
+                      }}
                     >
                       +
                     </button>
                   </div>
                 )}
                 {!selected.images.length && !editing && (
-                  <div className="empty-state">Nessuna immagine disponibile.</div>
+                  <div className="empty-state">
+                    Nessuna immagine disponibile.
+                  </div>
                 )}
               </div>
 
@@ -1378,12 +1433,17 @@ function App() {
                             </li>
                           );
                         })
-                          : selected.prices.map((price, idx) => (
-                            <li key={price.id}>
+                      : selected.prices.map((price, idx) => (
+                          <li key={price.id}>
                             <strong>
                               {formatMoney(price.amount, price.currency)}
                             </strong>
-                            <span>{derivePlatformLabel(price, selected.source_urls[idx])}</span>
+                            <span>
+                              {derivePlatformLabel(
+                                price,
+                                selected.source_urls[idx],
+                              )}
+                            </span>
                             <small>{formatDate(price.added_at)}</small>
                             {selected.source_urls[idx] && (
                               <a
@@ -1399,30 +1459,34 @@ function App() {
                             )}
                           </li>
                         ))}
-                      {/* extra source_urls (when there are more sources than prices) */}
-                      {!editing &&
-                        selected.source_urls.length > selected.prices.length &&
-                        selected.source_urls
-                          .slice(selected.prices.length)
-                          .map((source) => (
-                            <li key={source.id}>
-                              <a href={source.url} target="_blank" rel="noreferrer">
-                                {derivePlatformLabel(undefined, source)}
-                              </a>
-                              <small>{formatDate(source.added_at)}</small>
-                            </li>
-                          ))}
+                    {/* extra source_urls (when there are more sources than prices) */}
+                    {!editing &&
+                      selected.source_urls.length > selected.prices.length &&
+                      selected.source_urls
+                        .slice(selected.prices.length)
+                        .map((source) => (
+                          <li key={source.id}>
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {derivePlatformLabel(undefined, source)}
+                            </a>
+                            <small>{formatDate(source.added_at)}</small>
+                          </li>
+                        ))}
 
-                      {(selected || editing) && (
-                        <li className={editing ? "editing-row" : undefined}>
-                          <button className="button" onClick={appendEditablePair}>
-                            +
-                          </button>
-                        </li>
-                      )}
-                    </ul>
-                  </div>
+                    {(selected || editing) && (
+                      <li className={editing ? "editing-row" : undefined}>
+                        <button className="button" onClick={appendEditablePair}>
+                          +
+                        </button>
+                      </li>
+                    )}
+                  </ul>
                 </div>
+              </div>
             </>
           ) : (
             <div className="empty-state">

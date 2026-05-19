@@ -328,14 +328,14 @@ select optgroup { color: #94a3b8; }
 .detail-hero {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
-  gap: 16px;
+  gap: 22px;
   margin-bottom: 18px;
 }
 
 .detail-kpis {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 18px;
 }
 
 .kpi {
