@@ -182,6 +182,7 @@ function App() {
     "",
   );
   const [selectedSourceSite, setSelectedSourceSite] = useState<string>("");
+  const [excludeTagIds, setExcludeTagIds] = useState<number[]>([]);
   const [view, setView] = useState<"dashboard" | "tags" | "sources">(
     "dashboard",
   );
@@ -193,6 +194,8 @@ function App() {
     websites: SourceWebsite[];
   } | null>(null);
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
 
   function appendEditablePair() {
     if (editing && draft) {
@@ -216,6 +219,7 @@ function App() {
   async function loadProducts(
     tagId?: number | "" | "untagged",
     sourceSite?: string,
+    excludeTags?: number[],
   ) {
     setLoadingList(true);
     setError(null);
@@ -232,6 +236,9 @@ function App() {
         }
         if (sourceSite && sourceSite.trim()) {
           params.set("source_site", sourceSite.trim());
+        }
+        if (excludeTags && excludeTags.length > 0) {
+          params.set("exclude_tag_ids", excludeTags.join(","));
         }
         list = await fetchJson<ProductSummary[]>(
           `/api/dashboard/products?${params.toString()}`,
@@ -329,8 +336,20 @@ function App() {
     void loadProducts(
       selectedTagId as number | "" | "untagged",
       selectedSourceSite,
+      excludeTagIds,
     );
-  }, [selectedTagId, selectedSourceSite]);
+  }, [selectedTagId, selectedSourceSite, excludeTagIds]);
+
+  useEffect(() => {
+    if (!viewerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setViewerOpen(false);
+      if (e.key === "ArrowLeft") setViewerIndex((i) => Math.max(0, i - 1));
+      if (e.key === "ArrowRight") setViewerIndex((i) => Math.min((selected?.images.length || 1) - 1, i + 1));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewerOpen, selected]);
 
   useEffect(() => {
     let cancelled = false;
@@ -692,6 +711,26 @@ function App() {
                     ) : null,
                   )}
                 </select>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <label style={{ color: "#94a3b8", fontSize: 12 }}>Escludi tag:</label>
+                  <select
+                    className="input"
+                    multiple
+                    value={excludeTagIds.map(String)}
+                    onChange={(e) => {
+                      const values = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
+                      setExcludeTagIds(values);
+                    }}
+                    title="Seleziona tag da escludere (multi-select)"
+                    style={{ height: 120 }}
+                  >
+                    {tags.map((tag) => (
+                      <option key={`ex-${tag.id}`} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -1198,9 +1237,19 @@ function App() {
                       </button>
                     )}
                     {image.url ? (
-                      <a href={image.url} target="_blank" rel="noreferrer">
-                        <img src={image.url} alt={selected.title} />
-                      </a>
+                          <a
+                            href={image.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const idx = selected.images.findIndex((i) => i.id === image.id);
+                              setViewerIndex(idx >= 0 ? idx : 0);
+                              setViewerOpen(true);
+                            }}
+                          >
+                            <img src={image.url} alt={selected.title} />
+                          </a>
                     ) : (
                       <div className="placeholder">No image</div>
                     )}
@@ -1491,6 +1540,43 @@ function App() {
           ) : (
             <div className="empty-state">
               Seleziona un prodotto per vedere i dettagli.
+            </div>
+          )}
+          {viewerOpen && selected && (
+            <div
+              className="lightbox-overlay"
+              onClick={() => setViewerOpen(false)}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="lightbox-close button secondary"
+                  onClick={() => setViewerOpen(false)}
+                >
+                  Chiudi
+                </button>
+                <div className="lightbox-nav">
+                  <button
+                    className="button"
+                    onClick={() => setViewerIndex((i) => Math.max(0, i - 1))}
+                    disabled={viewerIndex <= 0}
+                  >
+                    ‹
+                  </button>
+                  <img
+                    src={selected.images[viewerIndex]?.url}
+                    alt={selected.title}
+                  />
+                  <button
+                    className="button"
+                    onClick={() => setViewerIndex((i) => Math.min(selected.images.length - 1, i + 1))}
+                    disabled={viewerIndex >= selected.images.length - 1}
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </section>

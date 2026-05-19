@@ -319,7 +319,7 @@ def list_products(q: Optional[str] = None, limit: int = 20, offset: int = 0):
 
 
 @app.get("/api/dashboard/products", response_model=List[ProductSummaryOut])
-def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, tag_kind: Optional[TagKind] = None, source_site: Optional[str] = None, limit: int = 50, offset: int = 0):
+def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, tag_kind: Optional[TagKind] = None, source_site: Optional[str] = None, exclude_tag_ids: Optional[str] = None, exclude_source: Optional[str] = None, limit: int = 50, offset: int = 0):
     with Session(engine) as session:
         query = select(Product)
         if q:
@@ -337,6 +337,31 @@ def dashboard_products(q: Optional[str] = None, tag_id: Optional[int] = None, ta
                 if source_site_lower in _product_source_labels(session, product.id)
             ]
             query = query.where(Product.id.in_(matching_product_ids or [-1]))
+        # exclude by tag ids (comma separated list)
+        if exclude_tag_ids:
+            try:
+                exclude_ids = [int(x) for x in re.split(r"\s*,\s*", exclude_tag_ids.strip()) if x]
+            except Exception:
+                exclude_ids = []
+            if exclude_ids:
+                all_exclude_tag_ids = []
+                for et in exclude_ids:
+                    all_exclude_tag_ids.extend(_collect_descendant_tag_ids(session, et))
+                # find products that have any of these tags
+                rows = session.exec(select(ProductTagLink.product_id).where(ProductTagLink.tag_id.in_(all_exclude_tag_ids))).all()
+                prod_ids = list({r for r in rows})
+                if prod_ids:
+                    query = query.where(Product.id.notin_(prod_ids))
+        # exclude by source label
+        if exclude_source:
+            exclude_lower = exclude_source.strip().lower()
+            matching_product_ids = [
+                product.id
+                for product in session.exec(query.distinct()).all()
+                if exclude_lower in _product_source_labels(session, product.id)
+            ]
+            if matching_product_ids:
+                query = query.where(Product.id.notin_(matching_product_ids))
         products = session.exec(query.distinct().order_by(Product.created_at.desc()).offset(offset).limit(limit)).all()
         return [_serialize_summary(product, session) for product in products]
 

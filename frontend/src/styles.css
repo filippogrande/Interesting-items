@@ -383,6 +383,42 @@ select optgroup { color: #94a3b8; }
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Lightbox / image viewer */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+}
+.lightbox-content {
+  max-width: 1200px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.lightbox-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.lightbox-nav img {
+  max-width: calc(100% - 120px);
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.lightbox-close {
+  align-self: flex-end;
+}
+
 .two-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
