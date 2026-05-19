@@ -740,13 +740,13 @@ function App() {
                     try {
                       const resp = await fetch(`/api/products/${selected.id}`, {
                         method: "DELETE",
+                      });
+                      if (!resp.ok && resp.status !== 204) {
+                        throw new Error(`HTTP ${resp.status}`);
                       }
-                    }
-                      }
-                      style={{ padding: "12px 18px", fontSize: 16 }}
-                    >
-                      🗑️
-                    </button>
+                      // refresh lista e dettagli
+                      await loadProducts(
+                        selectedTagId as number | "" | "untagged",
                         selectedSourceSite,
                       );
                       setSelected(null);
@@ -759,7 +759,7 @@ function App() {
                       );
                     }
                   }}
-                  style={{ padding: "6px 10px", fontSize: 16 }}
+                  style={{ padding: "12px 18px", fontSize: 16 }}
                 >
                   🗑️
                 </button>
