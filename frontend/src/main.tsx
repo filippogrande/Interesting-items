@@ -740,13 +740,13 @@ function App() {
                     try {
                       const resp = await fetch(`/api/products/${selected.id}`, {
                         method: "DELETE",
-                      });
-                      if (!resp.ok && resp.status !== 204) {
-                        throw new Error(`HTTP ${resp.status}`);
                       }
-                      // refresh lista e dettagli
-                      await loadProducts(
-                        selectedTagId as number | "" | "untagged",
+                    }
+                      }
+                      style={{ padding: "12px 18px", fontSize: 16 }}
+                    >
+                      🗑️
+                    </button>
                         selectedSourceSite,
                       );
                       setSelected(null);
@@ -1167,7 +1167,7 @@ function App() {
                 {editing && (
                   <div
                     className="gallery-item"
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 220 }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
                   >
                     <input
                       ref={imageUploadRef}
@@ -1190,7 +1190,7 @@ function App() {
                     <button
                       className="button"
                       onClick={() => imageUploadRef.current?.click()}
-                      style={{ width: "100%", minHeight: 220 }}
+                      style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34 }}
                     >
                       +
                     </button>

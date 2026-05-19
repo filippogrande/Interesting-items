@@ -339,13 +339,32 @@ select optgroup { color: #94a3b8; }
 }
 
 .kpi {
-  padding: 16px;
+  padding: 18px 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 84px;
+  min-width: 140px;
 }
 
-.kpi span,
+.kpi span {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  line-height: 1.1;
+}
+
+.kpi strong {
+  color: #fff;
+  font-size: 1.05rem;
+  line-height: 1.15;
+  word-break: break-word;
+}
+
 .product-card-topline,
 .muted {
   color: #94a3b8;
