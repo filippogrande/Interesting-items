@@ -352,6 +352,15 @@ function App() {
   }, [viewerOpen, selected]);
 
   useEffect(() => {
+    if (!viewerOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [viewerOpen]);
+
+  useEffect(() => {
     let cancelled = false;
     fetchJson<Tag[]>("/api/tags")
       .then((data) => {
@@ -468,6 +477,18 @@ function App() {
     }
     return grouped;
   }, [tags]);
+
+  function toggleExcludeTag(tagId: number) {
+    setExcludeTagIds((current) =>
+      current.includes(tagId)
+        ? current.filter((id) => id !== tagId)
+        : [...current, tagId],
+    );
+  }
+
+  function clearExcludeTags() {
+    setExcludeTagIds([]);
+  }
 
   const filteredProducts = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -711,25 +732,112 @@ function App() {
                     ) : null,
                   )}
                 </select>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <label style={{ color: "#94a3b8", fontSize: 12 }}>Escludi tag:</label>
-                  <select
-                    className="input"
-                    multiple
-                    value={excludeTagIds.map(String)}
-                    onChange={(e) => {
-                      const values = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
-                      setExcludeTagIds(values);
+                <div
+                  style={{
+                    marginTop: 4,
+                    padding: 12,
+                    borderRadius: 16,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(255,255,255,0.03)",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
                     }}
-                    title="Seleziona tag da escludere (multi-select)"
-                    style={{ height: 120 }}
                   >
-                    {tags.map((tag) => (
-                      <option key={`ex-${tag.id}`} value={tag.id}>
-                        {tag.name}
-                      </option>
-                    ))}
-                  </select>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase" }}>
+                        Escludi tag
+                      </div>
+                      <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                        Seleziona uno o più tag da togliere dai risultati.
+                      </div>
+                    </div>
+                    <button
+                      className="button secondary"
+                      onClick={clearExcludeTags}
+                      disabled={excludeTagIds.length === 0}
+                      style={{ padding: "8px 12px" }}
+                    >
+                      Azzera
+                    </button>
+                  </div>
+
+                  {excludeTagIds.length > 0 && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {excludeTagIds.map((tagId) => {
+                        const tag = tagMap.get(tagId);
+                        if (!tag) return null;
+                        return (
+                          <div key={`exclude-chip-${tagId}`} className="tag-pill">
+                            <span style={{ fontSize: 14, fontWeight: 500 }}>{tag.name}</span>
+                            <button
+                              className="button tiny danger"
+                              onClick={() => toggleExcludeTag(tagId)}
+                              style={{ padding: "0px 6px", fontSize: 12 }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {TAG_KIND_ORDER.map((kind) => {
+                      const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
+                      if (group.length === 0) return null;
+                      return (
+                        <div key={`exclude-${kind}`} style={{ display: "grid", gap: 6 }}>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              color: "#4a5568",
+                            }}
+                          >
+                            {TAG_KIND_LABELS[kind]}
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                              gap: 8,
+                            }}
+                          >
+                            {group.map((tag) => {
+                              const isSelected = excludeTagIds.includes(tag.id);
+                              return (
+                                <label
+                                  key={`exclude-tag-${tag.id}`}
+                                  className={`tag-option ${isSelected ? "selected" : ""}`}
+                                  style={{ cursor: "pointer" }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleExcludeTag(tag.id)}
+                                    style={{ marginTop: 2 }}
+                                  />
+                                  <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+                                    <div style={{ fontWeight: 600 }}>{tag.name}</div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1542,45 +1650,45 @@ function App() {
               Seleziona un prodotto per vedere i dettagli.
             </div>
           )}
-          {viewerOpen && selected && (
-            <div
-              className="lightbox-overlay"
-              onClick={() => setViewerOpen(false)}
-              role="dialog"
-              aria-modal="true"
-            >
-              <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
-                <button
-                  className="lightbox-close button secondary"
-                  onClick={() => setViewerOpen(false)}
-                >
-                  Chiudi
-                </button>
-                <div className="lightbox-nav">
-                  <button
-                    className="button"
-                    onClick={() => setViewerIndex((i) => Math.max(0, i - 1))}
-                    disabled={viewerIndex <= 0}
-                  >
-                    ‹
-                  </button>
-                  <img
-                    src={selected.images[viewerIndex]?.url}
-                    alt={selected.title}
-                  />
-                  <button
-                    className="button"
-                    onClick={() => setViewerIndex((i) => Math.min(selected.images.length - 1, i + 1))}
-                    disabled={viewerIndex >= selected.images.length - 1}
-                  >
-                    ›
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
       </main>
+      {viewerOpen && selected && (
+        <div
+          className="lightbox-overlay"
+          onClick={() => setViewerOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="lightbox-close button secondary"
+              onClick={() => setViewerOpen(false)}
+            >
+              Chiudi
+            </button>
+            <div className="lightbox-nav">
+              <button
+                className="button"
+                onClick={() => setViewerIndex((i) => Math.max(0, i - 1))}
+                disabled={viewerIndex <= 0}
+              >
+                ‹
+              </button>
+              <img
+                src={selected.images[viewerIndex]?.url}
+                alt={selected.title}
+              />
+              <button
+                className="button"
+                onClick={() => setViewerIndex((i) => Math.min(selected.images.length - 1, i + 1))}
+                disabled={viewerIndex >= selected.images.length - 1}
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <footer className="app-footer">Versione: {appVersion}</footer>
     </div>
   );
