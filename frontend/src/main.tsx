@@ -211,7 +211,8 @@ function App() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  const [mergeCandidateDetail, setMergeCandidateDetail] = useState<ProductDetail | null>(null);
+  const [mergeCandidateDetail, setMergeCandidateDetail] =
+    useState<ProductDetail | null>(null);
   const [mergeCandidateLoading, setMergeCandidateLoading] = useState(false);
   const [mergeDraft, setMergeDraft] = useState({
     title: "",
@@ -222,13 +223,21 @@ function App() {
     category_id: "",
     archived: false,
   });
-  const [mergeSelectedImageIds, setMergeSelectedImageIds] = useState<number[]>([]);
-  const [mergeSelectedPriceIds, setMergeSelectedPriceIds] = useState<number[]>([]);
-  const [mergeSelectedSourceUrlIds, setMergeSelectedSourceUrlIds] = useState<number[]>([]);
+  const [mergeSelectedImageIds, setMergeSelectedImageIds] = useState<number[]>(
+    [],
+  );
+  const [mergeSelectedPriceIds, setMergeSelectedPriceIds] = useState<number[]>(
+    [],
+  );
+  const [mergeSelectedSourceUrlIds, setMergeSelectedSourceUrlIds] = useState<
+    number[]
+  >([]);
 
   // new product creation state
   const [creating, setCreating] = useState(false);
-  const [newProductDraft, setNewProductDraft] = useState<Partial<ProductDetail>>({
+  const [newProductDraft, setNewProductDraft] = useState<
+    Partial<ProductDetail>
+  >({
     title: "",
     description: "",
     brand: "",
@@ -248,6 +257,11 @@ function App() {
     notes: "",
     productIds: [] as number[],
   });
+  // images changed while editing (not yet saved)
+  const [draftPendingUploads, setDraftPendingUploads] = useState<File[]>([]);
+  const [draftDeletedImageIds, setDraftDeletedImageIds] = useState<number[]>(
+    [],
+  );
   function buildMergeDraft(product: ProductDetail) {
     return {
       title: product.title || "",
@@ -289,6 +303,7 @@ function App() {
     tagId?: number | "" | "untagged",
     sourceSite?: string,
     excludeTags?: number[],
+    skipAutoSelect?: boolean,
   ) {
     setLoadingList(true);
     setError(null);
@@ -314,11 +329,13 @@ function App() {
         );
       }
       setProducts(list);
-      if (list.length > 0) {
-        void loadDetail(list[0].id);
-      } else {
-        setSelected(null);
-        setDraft(null);
+      if (!skipAutoSelect) {
+        if (list.length > 0) {
+          void loadDetail(list[0].id);
+        } else {
+          setSelected(null);
+          setDraft(null);
+        }
       }
     } catch (err) {
       setError(
@@ -369,10 +386,14 @@ function App() {
       setMergeCandidateDetail(detail);
       setMergeSelectedImageIds(detail.images.map((image) => image.id));
       setMergeSelectedPriceIds(detail.prices.map((price) => price.id));
-      setMergeSelectedSourceUrlIds(detail.source_urls.map((source) => source.id));
+      setMergeSelectedSourceUrlIds(
+        detail.source_urls.map((source) => source.id),
+      );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Errore caricamento prodotto merge",
+        err instanceof Error
+          ? err.message
+          : "Errore caricamento prodotto merge",
       );
     } finally {
       setMergeCandidateLoading(false);
@@ -381,6 +402,15 @@ function App() {
 
   async function deleteProductImage(imageId: number) {
     if (!selected) return;
+    if (editing) {
+      // in edit mode, toggle mark-for-deletion locally
+      setDraftDeletedImageIds((current) =>
+        current.includes(imageId)
+          ? current.filter((id) => id !== imageId)
+          : [...current, imageId],
+      );
+      return;
+    }
     if (!confirm("Eliminare questa immagine?")) return;
     await fetch(`/api/images/${imageId}`, { method: "DELETE" });
     await refreshDetail(selected.id, true);
@@ -388,6 +418,11 @@ function App() {
 
   async function uploadProductImage(file: File) {
     if (!selected) return;
+    if (editing) {
+      // queue the upload locally until save
+      setDraftPendingUploads((current) => [...current, file]);
+      return;
+    }
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch(`/api/products/${selected.id}/images/upload`, {
@@ -418,18 +453,36 @@ function App() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const created = await resp.json();
       // refresh list and open detail
-      await loadProducts(selectedTagId as number | "" | "untagged", selectedSourceSite, excludeTagIds);
+      await loadProducts(
+        selectedTagId as number | "" | "untagged",
+        selectedSourceSite,
+        excludeTagIds,
+      );
       await loadDetail(created.id);
       setCreating(false);
-      setNewProductDraft({ title: "", description: "", brand: "", origin_type: "", archived: false, prices: [], source_urls: [], images: [], tags: [] });
+      setNewProductDraft({
+        title: "",
+        description: "",
+        brand: "",
+        origin_type: "",
+        archived: false,
+        prices: [],
+        source_urls: [],
+        images: [],
+        tags: [],
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore creazione prodotto");
+      setError(
+        err instanceof Error ? err.message : "Errore creazione prodotto",
+      );
     }
   }
 
   async function createBundle() {
     if (!selected) return;
-    const productIds = Array.from(new Set([selected.id, ...bundleDraft.productIds])).filter(Boolean);
+    const productIds = Array.from(
+      new Set([selected.id, ...bundleDraft.productIds]),
+    ).filter(Boolean);
     if (productIds.length < 2) {
       setError("Seleziona almeno due prodotti per creare un bundle");
       return;
@@ -472,6 +525,35 @@ function App() {
     }
   }
 
+  async function createBundleFromPrice(
+    price: { id: number; amount: number; currency: string },
+    idx: number,
+  ) {
+    try {
+      const source =
+        (selected.source_urls[idx] ?? selected.source_urls[0]) || null;
+      const payload = {
+        title: undefined,
+        amount: Number(price.amount),
+        currency: price.currency || "EUR",
+        source_url: source?.url || "",
+        notes: undefined,
+        product_ids: [selected.id],
+      } as any;
+
+      const resp = await fetch(`/api/bundles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await loadDetail(selected.id);
+      setBundleCreatorOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore creazione bundle");
+    }
+  }
+
   async function commitMerge() {
     if (!selected || !mergeCandidateDetail) {
       setError("Seleziona un prodotto principale e uno da mergiare");
@@ -493,7 +575,9 @@ function App() {
           brand: mergeDraft.brand,
           origin_type: mergeDraft.origin_type,
           product_metadata: mergeDraft.product_metadata || null,
-          category_id: mergeDraft.category_id ? Number(mergeDraft.category_id) : null,
+          category_id: mergeDraft.category_id
+            ? Number(mergeDraft.category_id)
+            : null,
           archived: mergeDraft.archived,
           selected_image_ids: mergeSelectedImageIds,
           selected_price_ids: mergeSelectedPriceIds,
@@ -599,9 +683,15 @@ function App() {
 
   useEffect(() => {
     if (view !== "merge" || !mergeCandidateDetail) return;
-    setMergeSelectedImageIds(mergeCandidateDetail.images.map((image) => image.id));
-    setMergeSelectedPriceIds(mergeCandidateDetail.prices.map((price) => price.id));
-    setMergeSelectedSourceUrlIds(mergeCandidateDetail.source_urls.map((source) => source.id));
+    setMergeSelectedImageIds(
+      mergeCandidateDetail.images.map((image) => image.id),
+    );
+    setMergeSelectedPriceIds(
+      mergeCandidateDetail.prices.map((price) => price.id),
+    );
+    setMergeSelectedSourceUrlIds(
+      mergeCandidateDetail.source_urls.map((source) => source.id),
+    );
   }, [view, mergeCandidateDetail?.id]);
 
   useEffect(() => {
@@ -763,7 +853,13 @@ function App() {
       </header>
 
       <section className="stats-grid">
-        <StatCard label="Prodotti" value={stats.products} />
+        <StatCard
+          label="Prodotti"
+          value={stats.products}
+          onClick={() => {
+            setView("dashboard");
+          }}
+        />
         <StatCard label="Immagini" value={stats.images} />
         <StatCard label="Prezzi" value={stats.prices} />
         <StatCard
@@ -796,12 +892,24 @@ function App() {
 
       <main className="layout">
         {view === "merge" ? (
-          <section className="panel list-panel" style={{ gridColumn: "1 / -1" }}>
+          <section
+            className="panel list-panel"
+            style={{ gridColumn: "1 / -1" }}
+          >
             <div className="panel-header">
               <h2>Unisci i prodotti</h2>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="button secondary" onClick={() => setView("dashboard")}>Indietro</button>
-                <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>
+                <button
+                  className="button secondary"
+                  onClick={() => setView("dashboard")}
+                >
+                  Indietro
+                </button>
+                <button
+                  className="button primary"
+                  onClick={() => void commitMerge()}
+                  disabled={!selected || !mergeCandidateDetail}
+                >
                   Salva merge
                 </button>
               </div>
@@ -818,7 +926,13 @@ function App() {
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 18,
+              }}
+            >
               <div className="panel" style={{ minHeight: 0 }}>
                 <div className="panel-header">
                   <h3>Main</h3>
@@ -833,7 +947,10 @@ function App() {
                     >
                       <div className="product-card-media">
                         {product.cover_image_url ? (
-                          <img src={product.cover_image_url} alt={product.title} />
+                          <img
+                            src={product.cover_image_url}
+                            alt={product.title}
+                          />
                         ) : (
                           <div className="placeholder">No image</div>
                         )}
@@ -841,7 +958,11 @@ function App() {
                       <div className="product-card-body">
                         <div className="product-card-topline">
                           <span>{product.origin_type || "unknown"}</span>
-                          <span>{formatDate(product.scraped_at || product.created_at)}</span>
+                          <span>
+                            {formatDate(
+                              product.scraped_at || product.created_at,
+                            )}
+                          </span>
                         </div>
                         <h3>{product.title}</h3>
                         <p>{product.description}</p>
@@ -858,7 +979,9 @@ function App() {
                   <div style={{ display: "grid", gap: 10 }}>
                     <div className="kpi">
                       <span>Selezionato</span>
-                      <strong>#{selected.id} - {selected.title}</strong>
+                      <strong>
+                        #{selected.id} - {selected.title}
+                      </strong>
                     </div>
                     <div className="kpi">
                       <span>Descrizione</span>
@@ -866,11 +989,15 @@ function App() {
                     </div>
                     <div className="kpi">
                       <span>Immagini / Prezzi</span>
-                      <strong>{selected.images.length} / {selected.prices.length}</strong>
+                      <strong>
+                        {selected.images.length} / {selected.prices.length}
+                      </strong>
                     </div>
                   </div>
                 ) : (
-                  <div className="empty-state">Seleziona il prodotto principale.</div>
+                  <div className="empty-state">
+                    Seleziona il prodotto principale.
+                  </div>
                 )}
               </div>
 
@@ -890,7 +1017,10 @@ function App() {
                       >
                         <div className="product-card-media">
                           {product.cover_image_url ? (
-                            <img src={product.cover_image_url} alt={product.title} />
+                            <img
+                              src={product.cover_image_url}
+                              alt={product.title}
+                            />
                           ) : (
                             <div className="placeholder">No image</div>
                           )}
@@ -898,7 +1028,11 @@ function App() {
                         <div className="product-card-body">
                           <div className="product-card-topline">
                             <span>{product.origin_type || "unknown"}</span>
-                            <span>{formatDate(product.scraped_at || product.created_at)}</span>
+                            <span>
+                              {formatDate(
+                                product.scraped_at || product.created_at,
+                              )}
+                            </span>
                           </div>
                           <h3>{product.title}</h3>
                           <p>{product.description}</p>
@@ -915,7 +1049,10 @@ function App() {
                   <div style={{ display: "grid", gap: 10 }}>
                     <div className="kpi">
                       <span>Selezionato</span>
-                      <strong>#{mergeCandidateDetail.id} - {mergeCandidateDetail.title}</strong>
+                      <strong>
+                        #{mergeCandidateDetail.id} -{" "}
+                        {mergeCandidateDetail.title}
+                      </strong>
                     </div>
                     <div className="kpi">
                       <span>Descrizione</span>
@@ -923,32 +1060,81 @@ function App() {
                     </div>
                     <div className="kpi">
                       <span>Immagini / Prezzi</span>
-                      <strong>{mergeCandidateDetail.images.length} / {mergeCandidateDetail.prices.length}</strong>
+                      <strong>
+                        {mergeCandidateDetail.images.length} /{" "}
+                        {mergeCandidateDetail.prices.length}
+                      </strong>
                     </div>
                   </div>
                 ) : (
-                  <div className="empty-state">Seleziona il prodotto da mergiare.</div>
+                  <div className="empty-state">
+                    Seleziona il prodotto da mergiare.
+                  </div>
                 )}
               </div>
             </div>
 
             <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
               <div className="editing-panel">
-                <h4 style={{ marginTop: 0, marginBottom: 12 }}>Campi da salvare sul prodotto principale</h4>
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>
+                  Campi da salvare sul prodotto principale
+                </h4>
                 <div style={{ display: "grid", gap: 12 }}>
-                  {([
-                    ["title", "Titolo"],
-                    ["description", "Descrizione"],
-                    ["brand", "Brand"],
-                    ["origin_type", "Origine"],
-                  ] as Array<[keyof typeof mergeDraft, string]>).map(([field, label]) => (
-                    <div key={field as string} style={{ display: "grid", gap: 6 }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ minWidth: 110, color: "#94a3b8", fontSize: 12, textTransform: "uppercase", fontWeight: 700 }}>{label}</span>
-                        <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, [field]: selected ? (selected as any)[field] || "" : "" }))}>
+                  {(
+                    [
+                      ["title", "Titolo"],
+                      ["description", "Descrizione"],
+                      ["brand", "Brand"],
+                      ["origin_type", "Origine"],
+                    ] as Array<[keyof typeof mergeDraft, string]>
+                  ).map(([field, label]) => (
+                    <div
+                      key={field as string}
+                      style={{ display: "grid", gap: 6 }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span
+                          style={{
+                            minWidth: 110,
+                            color: "#94a3b8",
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {label}
+                        </span>
+                        <button
+                          className="button tiny"
+                          onClick={() =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: selected
+                                ? (selected as any)[field] || ""
+                                : "",
+                            }))
+                          }
+                        >
                           Sinistra
                         </button>
-                        <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, [field]: mergeCandidateDetail ? (mergeCandidateDetail as any)[field] || "" : "" }))}>
+                        <button
+                          className="button tiny"
+                          onClick={() =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: mergeCandidateDetail
+                                ? (mergeCandidateDetail as any)[field] || ""
+                                : "",
+                            }))
+                          }
+                        >
                           Destra
                         </button>
                       </div>
@@ -956,28 +1142,79 @@ function App() {
                         <textarea
                           className="textarea"
                           value={mergeDraft.description}
-                          onChange={(e) => setMergeDraft((current) => ({ ...current, description: e.target.value }))}
+                          onChange={(e) =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              description: e.target.value,
+                            }))
+                          }
                         />
                       ) : (
                         <input
                           className="input"
                           value={(mergeDraft as any)[field]}
-                          onChange={(e) => setMergeDraft((current) => ({ ...current, [field]: e.target.value }))}
+                          onChange={(e) =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: e.target.value,
+                            }))
+                          }
                         />
                       )}
                     </div>
                   ))}
 
                   <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                      <span style={{ minWidth: 110, color: "#94a3b8", fontSize: 12, textTransform: "uppercase", fontWeight: 700 }}>Archiviato</span>
-                      <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((current) => ({ ...current, archived: !current.archived }))}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        style={{
+                          minWidth: 110,
+                          color: "#94a3b8",
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                        }}
+                      >
+                        Archiviato
+                      </span>
+                      <button
+                        className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`}
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: !current.archived,
+                          }))
+                        }
+                      >
                         {mergeDraft.archived ? "Sì" : "No"}
                       </button>
-                      <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, archived: selected?.archived ?? false }))}>
+                      <button
+                        className="button tiny"
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: selected?.archived ?? false,
+                          }))
+                        }
+                      >
                         Sinistra
                       </button>
-                      <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, archived: mergeCandidateDetail?.archived ?? false }))}>
+                      <button
+                        className="button tiny"
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: mergeCandidateDetail?.archived ?? false,
+                          }))
+                        }
+                      >
                         Destra
                       </button>
                     </div>
@@ -986,18 +1223,66 @@ function App() {
               </div>
 
               <div className="editing-panel">
-                <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini, prezzi e link da importare dalla destra</h4>
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>
+                  Immagini, prezzi e link da importare dalla destra
+                </h4>
                 {mergeCandidateDetail ? (
                   <div style={{ display: "grid", gap: 14 }}>
                     <div>
-                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Immagini</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Immagini
+                      </div>
                       <div className="gallery" style={{ margin: 0 }}>
                         {mergeCandidateDetail.images.map((image) => {
-                          const checked = mergeSelectedImageIds.includes(image.id);
+                          const checked = mergeSelectedImageIds.includes(
+                            image.id,
+                          );
                           return (
-                            <label key={`merge-image-${image.id}`} className="gallery-item" style={{ position: "relative", display: "block", cursor: "pointer", border: checked ? "2px solid rgba(96,165,250,0.9)" : undefined }}>
-                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedImageIds((current) => current.includes(image.id) ? current.filter((id) => id !== image.id) : [...current, image.id])} style={{ position: "absolute", top: 8, left: 8, zIndex: 2 }} />
-                              {image.url ? <img src={image.url} alt={mergeCandidateDetail.title} /> : <div className="placeholder">No image</div>}
+                            <label
+                              key={`merge-image-${image.id}`}
+                              className="gallery-item"
+                              style={{
+                                position: "relative",
+                                display: "block",
+                                cursor: "pointer",
+                                border: checked
+                                  ? "2px solid rgba(96,165,250,0.9)"
+                                  : undefined,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedImageIds((current) =>
+                                    current.includes(image.id)
+                                      ? current.filter((id) => id !== image.id)
+                                      : [...current, image.id],
+                                  )
+                                }
+                                style={{
+                                  position: "absolute",
+                                  top: 8,
+                                  left: 8,
+                                  zIndex: 2,
+                                }}
+                              />
+                              {image.url ? (
+                                <img
+                                  src={image.url}
+                                  alt={mergeCandidateDetail.title}
+                                />
+                              ) : (
+                                <div className="placeholder">No image</div>
+                              )}
                             </label>
                           );
                         })}
@@ -1005,17 +1290,50 @@ function App() {
                     </div>
 
                     <div>
-                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Prezzi</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Prezzi
+                      </div>
                       <div style={{ display: "grid", gap: 8 }}>
                         {mergeCandidateDetail.prices.map((price) => {
-                          const checked = mergeSelectedPriceIds.includes(price.id);
-                          const relatedSource = mergeCandidateDetail.source_urls.find((source) => source.id === price.id) || mergeCandidateDetail.source_urls[0];
+                          const checked = mergeSelectedPriceIds.includes(
+                            price.id,
+                          );
+                          const relatedSource =
+                            mergeCandidateDetail.source_urls.find(
+                              (source) => source.id === price.id,
+                            ) || mergeCandidateDetail.source_urls[0];
                           return (
-                            <label key={`merge-price-${price.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
-                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedPriceIds((current) => current.includes(price.id) ? current.filter((id) => id !== price.id) : [...current, price.id])} style={{ marginTop: 2 }} />
+                            <label
+                              key={`merge-price-${price.id}`}
+                              className={`tag-option ${checked ? "selected" : ""}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedPriceIds((current) =>
+                                    current.includes(price.id)
+                                      ? current.filter((id) => id !== price.id)
+                                      : [...current, price.id],
+                                  )
+                                }
+                                style={{ marginTop: 2 }}
+                              />
                               <div style={{ display: "grid", gap: 4 }}>
-                                <strong>{formatMoney(price.amount, price.currency)}</strong>
-                                <span>{derivePlatformLabel(price, relatedSource)}</span>
+                                <strong>
+                                  {formatMoney(price.amount, price.currency)}
+                                </strong>
+                                <span>
+                                  {derivePlatformLabel(price, relatedSource)}
+                                </span>
                               </div>
                             </label>
                           );
@@ -1024,15 +1342,47 @@ function App() {
                     </div>
 
                     <div>
-                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Link</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Link
+                      </div>
                       <div style={{ display: "grid", gap: 8 }}>
                         {mergeCandidateDetail.source_urls.map((source) => {
-                          const checked = mergeSelectedSourceUrlIds.includes(source.id);
+                          const checked = mergeSelectedSourceUrlIds.includes(
+                            source.id,
+                          );
                           return (
-                            <label key={`merge-source-${source.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
-                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedSourceUrlIds((current) => current.includes(source.id) ? current.filter((id) => id !== source.id) : [...current, source.id])} style={{ marginTop: 2 }} />
+                            <label
+                              key={`merge-source-${source.id}`}
+                              className={`tag-option ${checked ? "selected" : ""}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedSourceUrlIds((current) =>
+                                    current.includes(source.id)
+                                      ? current.filter((id) => id !== source.id)
+                                      : [...current, source.id],
+                                  )
+                                }
+                                style={{ marginTop: 2 }}
+                              />
                               <div style={{ display: "grid", gap: 4 }}>
-                                <a href={source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(undefined, source)}</a>
+                                <a
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {derivePlatformLabel(undefined, source)}
+                                </a>
                                 <small>{source.url}</small>
                               </div>
                             </label>
@@ -1042,14 +1392,35 @@ function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="empty-state">Seleziona il prodotto di destra per importare immagini, prezzi e link.</div>
+                  <div className="empty-state">
+                    Seleziona il prodotto di destra per importare immagini,
+                    prezzi e link.
+                  </div>
                 )}
               </div>
             </div>
 
-            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button className="button secondary" onClick={() => setView("dashboard")}>Annulla</button>
-              <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
+            <div
+              style={{
+                marginTop: 18,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                className="button secondary"
+                onClick={() => setView("dashboard")}
+              >
+                Annulla
+              </button>
+              <button
+                className="button primary"
+                onClick={() => void commitMerge()}
+                disabled={!selected || !mergeCandidateDetail}
+              >
+                Salva merge
+              </button>
             </div>
           </section>
         ) : view === "tags" ? (
@@ -1198,7 +1569,10 @@ function App() {
               <h2>Elenco prodotti</h2>
               <div style={{ display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button className="button secondary" onClick={() => setCreating(true)}>
+                  <button
+                    className="button secondary"
+                    onClick={() => setCreating(true)}
+                  >
                     + Nuovo prodotto
                   </button>
                 </div>
@@ -1250,26 +1624,52 @@ function App() {
                       gap: 8,
                       cursor: "pointer",
                     }}
-                    onClick={() => setExcludeTagsExpanded((current) => !current)}
+                    onClick={() =>
+                      setExcludeTagsExpanded((current) => !current)
+                    }
                   >
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#cbd5e1",
+                            textTransform: "uppercase",
+                          }}
+                        >
                           Escludi tag
                         </div>
                         {excludeTagIds.length > 0 && (
-                          <span className="badge muted" style={{ padding: "4px 10px", fontSize: 11 }}>
+                          <span
+                            className="badge muted"
+                            style={{ padding: "4px 10px", fontSize: 11 }}
+                          >
                             {excludeTagIds.length}
                           </span>
                         )}
                       </div>
                       {excludeTagsExpanded && (
-                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#94a3b8",
+                            marginTop: 4,
+                          }}
+                        >
                           Seleziona uno o più tag da togliere dai risultati.
                         </div>
                       )}
                     </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div
+                      style={{ display: "flex", gap: 8, alignItems: "center" }}
+                    >
                       {excludeTagsExpanded && (
                         <button
                           className="button secondary"
@@ -1292,13 +1692,20 @@ function App() {
                   {excludeTagsExpanded && (
                     <>
                       {excludeTagIds.length > 0 && (
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div
+                          style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                        >
                           {excludeTagIds.map((tagId) => {
                             const tag = tagMap.get(tagId);
                             if (!tag) return null;
                             return (
-                              <div key={`exclude-chip-${tagId}`} className="tag-pill">
-                                <span style={{ fontSize: 14, fontWeight: 500 }}>{tag.name}</span>
+                              <div
+                                key={`exclude-chip-${tagId}`}
+                                className="tag-pill"
+                              >
+                                <span style={{ fontSize: 14, fontWeight: 500 }}>
+                                  {tag.name}
+                                </span>
                                 <button
                                   className="button tiny danger"
                                   onClick={() => toggleExcludeTag(tagId)}
@@ -1322,10 +1729,15 @@ function App() {
                         }}
                       >
                         {TAG_KIND_ORDER.map((kind) => {
-                          const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
+                          const group = tagsByKind[kind]
+                            .slice()
+                            .sort((a, b) => a.name.localeCompare(b.name));
                           if (group.length === 0) return null;
                           return (
-                            <div key={`exclude-${kind}`} style={{ display: "grid", gap: 6 }}>
+                            <div
+                              key={`exclude-${kind}`}
+                              style={{ display: "grid", gap: 6 }}
+                            >
                               <div
                                 style={{
                                   fontSize: 12,
@@ -1339,12 +1751,15 @@ function App() {
                               <div
                                 style={{
                                   display: "grid",
-                                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                                  gridTemplateColumns:
+                                    "repeat(auto-fill, minmax(180px, 1fr))",
                                   gap: 8,
                                 }}
                               >
                                 {group.map((tag) => {
-                                  const isSelected = excludeTagIds.includes(tag.id);
+                                  const isSelected = excludeTagIds.includes(
+                                    tag.id,
+                                  );
                                   return (
                                     <label
                                       key={`exclude-tag-${tag.id}`}
@@ -1354,11 +1769,20 @@ function App() {
                                       <input
                                         type="checkbox"
                                         checked={isSelected}
-                                        onChange={() => toggleExcludeTag(tag.id)}
+                                        onChange={() =>
+                                          toggleExcludeTag(tag.id)
+                                        }
                                         style={{ marginTop: 2 }}
                                       />
-                                      <div style={{ fontSize: 13, lineHeight: 1.3 }}>
-                                        <div style={{ fontWeight: 600 }}>{tag.name}</div>
+                                      <div
+                                        style={{
+                                          fontSize: 13,
+                                          lineHeight: 1.3,
+                                        }}
+                                      >
+                                        <div style={{ fontWeight: 600 }}>
+                                          {tag.name}
+                                        </div>
                                       </div>
                                     </label>
                                   );
@@ -1439,10 +1863,17 @@ function App() {
                     setEditing(true);
                     setDraft(selected);
                     setEditingTagIds(selected.tags.map((t) => t.id));
+                    setDraftPendingUploads([]);
+                    setDraftDeletedImageIds([]);
                   }}
                 >
                   Modifica
                 </button>
+                {/* initialize image edit buffers */}
+                <script
+                  /* noop placeholder removed; initialize buffers directly below */
+                  dangerouslySetInnerHTML={{ __html: "" }}
+                />
                 <button
                   title="Elimina prodotto"
                   className="button danger"
@@ -1553,8 +1984,70 @@ function App() {
                       }
 
                       // per semplicità non gestiamo immagini complesse qui (solo delete se rimosse)
+                      // gestisci immagini modificate in edit mode: cancellazioni e upload in attesa
+                      if (draftDeletedImageIds.length > 0) {
+                        for (const imgId of draftDeletedImageIds) {
+                          try {
+                            await fetch(`/api/images/${imgId}`, {
+                              method: "DELETE",
+                            });
+                          } catch (e) {
+                            console.warn(
+                              "Errore eliminazione immagine durante salvataggio",
+                              imgId,
+                              e,
+                            );
+                          }
+                        }
+                      }
+                      if (draftPendingUploads.length > 0) {
+                        for (const file of draftPendingUploads) {
+                          try {
+                            const fd = new FormData();
+                            fd.append("file", file);
+                            const res = await fetch(
+                              `/api/products/${selected.id}/images/upload`,
+                              { method: "POST", body: fd },
+                            );
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                          } catch (e) {
+                            console.warn(
+                              "Errore upload immagine durante salvataggio",
+                              e,
+                            );
+                          }
+                        }
+                      }
+                      // reset buffers locali immagine
+                      setDraftPendingUploads([]);
+                      setDraftDeletedImageIds([]);
+
                       // refresh dettagli
+                      // refresh lista a sinistra senza cambiare automaticamente la selezione
+                      await loadProducts(
+                        selectedTagId as number | "" | "untagged",
+                        selectedSourceSite,
+                        excludeTagIds,
+                        true,
+                      );
+
+                      // ricarica dettaglio salvato e deseleziona se non corrisponde più al filtro
                       await loadDetail(selected.id);
+                      const saved = selected; // current selected after loadDetail
+                      if (saved) {
+                        const matchesFilter =
+                          selectedTagId === ""
+                            ? true
+                            : selectedTagId === "untagged"
+                              ? saved.tags.length === 0
+                              : saved.tags.some(
+                                  (t) => t.id === (selectedTagId as number),
+                                );
+                        if (!matchesFilter) {
+                          setSelected(null);
+                          setDraft(null);
+                        }
+                      }
                     } catch (err) {
                       console.error(err);
                       setError(
@@ -1565,6 +2058,8 @@ function App() {
                     } finally {
                       setEditing(false);
                       setDraft(null);
+                      setDraftPendingUploads([]);
+                      setDraftDeletedImageIds([]);
                     }
                   }}
                 >
@@ -1575,6 +2070,8 @@ function App() {
                   onClick={() => {
                     setEditing(false);
                     setDraft(null);
+                    setDraftPendingUploads([]);
+                    setDraftDeletedImageIds([]);
                   }}
                 >
                   Annulla
@@ -1845,57 +2342,140 @@ function App() {
               )}
 
               <div className="gallery">
-                {selected.images.map((image) => (
-                  <div
-                    key={image.id}
-                    className="gallery-item"
-                    style={{ position: "relative" }}
-                  >
-                    {editing && (
-                      <button
-                        className="button tiny danger"
-                        onClick={() => {
-                          void deleteProductImage(image.id).catch((err) => {
-                            setError(
-                              err instanceof Error
-                                ? err.message
-                                : "Errore cancellazione immagine",
-                            );
-                          });
-                        }}
+                {(editing && draft ? draft.images : selected.images).map(
+                  (image) => {
+                    const marked = draftDeletedImageIds.includes(image.id);
+                    return (
+                      <div
+                        key={image.id}
+                        className="gallery-item"
                         style={{
-                          position: "absolute",
-                          top: 8,
-                          right: 8,
-                          zIndex: 2,
-                          padding: "2px 6px",
-                          lineHeight: 1,
+                          position: "relative",
+                          opacity: marked ? 0.4 : 1,
                         }}
-                        aria-label="Elimina immagine"
-                        title="Elimina immagine"
                       >
-                        ×
-                      </button>
-                    )}
-                    {image.url ? (
+                        {editing && (
+                          <button
+                            className={`button tiny ${marked ? "" : "danger"}`}
+                            onClick={() => {
+                              // toggle mark for deletion when editing
+                              void deleteProductImage(image.id).catch((err) => {
+                                setError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Errore cancellazione immagine",
+                                );
+                              });
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: 8,
+                              right: 8,
+                              zIndex: 2,
+                              padding: "2px 6px",
+                              lineHeight: 1,
+                            }}
+                            aria-label={
+                              marked
+                                ? "Annulla eliminazione immagine"
+                                : "Elimina immagine"
+                            }
+                            title={
+                              marked
+                                ? "Annulla eliminazione immagine"
+                                : "Elimina immagine"
+                            }
+                          >
+                            {marked ? "↺" : "×"}
+                          </button>
+                        )}
+                        {image.url ? (
                           <a
                             href={image.url}
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => {
                               e.preventDefault();
-                              const idx = selected.images.findIndex((i) => i.id === image.id);
+                              const idx = (
+                                editing && draft
+                                  ? draft.images
+                                  : selected.images
+                              ).findIndex((i) => i.id === image.id);
                               setViewerIndex(idx >= 0 ? idx : 0);
                               setViewerOpen(true);
                             }}
                           >
-                            <img src={image.url} alt={selected.title} />
+                            <img src={image.url} alt={selected?.title} />
                           </a>
-                    ) : (
-                      <div className="placeholder">No image</div>
-                    )}
-                  </div>
-                ))}
+                        ) : (
+                          <div className="placeholder">No image</div>
+                        )}
+                        {marked && editing && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: 8,
+                              bottom: 8,
+                              background: "rgba(255,255,255,0.06)",
+                              padding: "2px 6px",
+                              borderRadius: 6,
+                              fontSize: 12,
+                            }}
+                          >
+                            Marked for deletion
+                          </div>
+                        )}
+                      </div>
+                    );
+                  },
+                )}
+                {/* previews for pending uploads while editing */}
+                {editing &&
+                  draftPendingUploads.map((file, idx) => {
+                    const url = URL.createObjectURL(file);
+                    return (
+                      <div
+                        key={`pending-${idx}`}
+                        className="gallery-item"
+                        style={{ position: "relative" }}
+                      >
+                        <button
+                          className="button tiny"
+                          onClick={() =>
+                            setDraftPendingUploads((cur) =>
+                              cur.filter((_, i) => i !== idx),
+                            )
+                          }
+                          style={{
+                            position: "absolute",
+                            top: 8,
+                            right: 8,
+                            zIndex: 2,
+                            padding: "2px 6px",
+                            lineHeight: 1,
+                          }}
+                          aria-label="Rimuovi immagine in attesa"
+                          title="Rimuovi immagine in attesa"
+                        >
+                          ×
+                        </button>
+                        <img src={url} alt={`pending-${idx}`} />
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: 8,
+                            bottom: 8,
+                            background: "rgba(255,255,255,0.06)",
+                            padding: "2px 6px",
+                            borderRadius: 6,
+                            fontSize: 12,
+                          }}
+                        >
+                          In attesa di salvataggio
+                        </div>
+                      </div>
+                    );
+                  })}
                 {editing && (
                   <div
                     className="gallery-item"
@@ -2124,29 +2704,63 @@ function App() {
                           );
                         })
                       : selected.prices.map((price, idx) => (
-                          <li key={price.id}>
-                            <strong>
-                              {formatMoney(price.amount, price.currency)}
-                            </strong>
-                            <span>
-                              {derivePlatformLabel(
-                                price,
-                                selected.source_urls[idx],
-                              )}
-                            </span>
-                            <small>{formatDate(price.added_at)}</small>
-                            {selected.source_urls[idx] && (
-                              <a
-                                href={selected.source_urls[idx].url}
-                                target="_blank"
-                                rel="noreferrer"
+                          <li
+                            key={price.id}
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <div>
+                                <strong>
+                                  {formatMoney(price.amount, price.currency)}
+                                </strong>
+                                <div style={{ fontSize: 12 }}>
+                                  {derivePlatformLabel(
+                                    price,
+                                    selected.source_urls[idx],
+                                  )}
+                                </div>
+                                <small>{formatDate(price.added_at)}</small>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 8,
+                                  alignItems: "center",
+                                }}
                               >
-                                {derivePlatformLabel(
-                                  undefined,
-                                  selected.source_urls[idx],
+                                {selected.source_urls[idx] && (
+                                  <a
+                                    href={selected.source_urls[idx].url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {derivePlatformLabel(
+                                      undefined,
+                                      selected.source_urls[idx],
+                                    )}
+                                  </a>
                                 )}
-                              </a>
-                            )}
+                                <button
+                                  className="button tiny"
+                                  onClick={() =>
+                                    void createBundleFromPrice(price, idx)
+                                  }
+                                >
+                                  Trasforma in bundle
+                                </button>
+                              </div>
+                            </div>
                           </li>
                         ))}
                     {/* extra source_urls (when there are more sources than prices) */}
@@ -2189,14 +2803,20 @@ function App() {
                       <h4 style={{ margin: 0 }}>Bundle</h4>
                       <button
                         className="button secondary"
-                        onClick={() => setBundleCreatorOpen((current) => !current)}
+                        onClick={() =>
+                          setBundleCreatorOpen((current) => !current)
+                        }
                       >
-                        {bundleCreatorOpen ? "Chiudi crea bundle" : "+ Crea bundle"}
+                        {bundleCreatorOpen
+                          ? "Chiudi crea bundle"
+                          : "+ Crea bundle"}
                       </button>
                     </div>
 
                     {selected.bundles.length > 0 ? (
-                      <div style={{ display: "grid", gap: 10, marginBottom: 12 }}>
+                      <div
+                        style={{ display: "grid", gap: 10, marginBottom: 12 }}
+                      >
                         {selected.bundles.map((bundle) => (
                           <div
                             key={bundle.id}
@@ -2207,20 +2827,37 @@ function App() {
                               border: "1px solid rgba(255,255,255,0.06)",
                             }}
                           >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
                               <strong>{bundle.title}</strong>
                               <span className="badge muted">
                                 {formatMoney(bundle.amount, bundle.currency)}
                               </span>
                             </div>
-                            <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
-                              <a href={bundle.source_url} target="_blank" rel="noreferrer">
+                            <div
+                              style={{ marginTop: 6, display: "grid", gap: 6 }}
+                            >
+                              <a
+                                href={bundle.source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
                                 {bundle.source_domain || bundle.source_url}
                               </a>
                               <small style={{ color: "#94a3b8" }}>
                                 {bundle.product_ids.length} prodotti nel bundle
                               </small>
-                              {bundle.notes && <small style={{ color: "#94a3b8" }}>{bundle.notes}</small>}
+                              {bundle.notes && (
+                                <small style={{ color: "#94a3b8" }}>
+                                  {bundle.notes}
+                                </small>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -2232,27 +2869,51 @@ function App() {
                     )}
 
                     {bundleCreatorOpen && (
-                      <div className="editing-panel" style={{ marginBottom: 0 }}>
+                      <div
+                        className="editing-panel"
+                        style={{ marginBottom: 0 }}
+                      >
                         <div style={{ display: "grid", gap: 10 }}>
                           <input
                             className="input"
                             placeholder="Titolo bundle (facoltativo)"
                             value={bundleDraft.title}
-                            onChange={(e) => setBundleDraft((current) => ({ ...current, title: e.target.value }))}
+                            onChange={(e) =>
+                              setBundleDraft((current) => ({
+                                ...current,
+                                title: e.target.value,
+                              }))
+                            }
                           />
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
                             <input
                               className="input"
                               placeholder="Prezzo bundle"
                               value={bundleDraft.amount}
-                              onChange={(e) => setBundleDraft((current) => ({ ...current, amount: e.target.value }))}
+                              onChange={(e) =>
+                                setBundleDraft((current) => ({
+                                  ...current,
+                                  amount: e.target.value,
+                                }))
+                              }
                               style={{ width: 140 }}
                             />
                             <input
                               className="input"
                               placeholder="EUR"
                               value={bundleDraft.currency}
-                              onChange={(e) => setBundleDraft((current) => ({ ...current, currency: e.target.value }))}
+                              onChange={(e) =>
+                                setBundleDraft((current) => ({
+                                  ...current,
+                                  currency: e.target.value,
+                                }))
+                              }
                               style={{ width: 100 }}
                             />
                           </div>
@@ -2260,13 +2921,23 @@ function App() {
                             className="input"
                             placeholder="Link bundle"
                             value={bundleDraft.sourceUrl}
-                            onChange={(e) => setBundleDraft((current) => ({ ...current, sourceUrl: e.target.value }))}
+                            onChange={(e) =>
+                              setBundleDraft((current) => ({
+                                ...current,
+                                sourceUrl: e.target.value,
+                              }))
+                            }
                           />
                           <textarea
                             className="textarea"
                             placeholder="Note facoltative"
                             value={bundleDraft.notes}
-                            onChange={(e) => setBundleDraft((current) => ({ ...current, notes: e.target.value }))}
+                            onChange={(e) =>
+                              setBundleDraft((current) => ({
+                                ...current,
+                                notes: e.target.value,
+                              }))
+                            }
                           />
 
                           <div
@@ -2278,11 +2949,20 @@ function App() {
                               paddingRight: 6,
                             }}
                           >
-                            <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700 }}>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                textTransform: "uppercase",
+                                color: "#94a3b8",
+                                fontWeight: 700,
+                              }}
+                            >
                               Prodotti nel bundle
                             </div>
                             {products.map((product) => {
-                              const checked = bundleDraft.productIds.includes(product.id);
+                              const checked = bundleDraft.productIds.includes(
+                                product.id,
+                              );
                               return (
                                 <label
                                   key={`bundle-product-${product.id}`}
@@ -2296,23 +2976,45 @@ function App() {
                                       setBundleDraft((current) => ({
                                         ...current,
                                         productIds: checked
-                                          ? current.productIds.filter((id) => id !== product.id)
-                                          : Array.from(new Set([...current.productIds, product.id])),
+                                          ? current.productIds.filter(
+                                              (id) => id !== product.id,
+                                            )
+                                          : Array.from(
+                                              new Set([
+                                                ...current.productIds,
+                                                product.id,
+                                              ]),
+                                            ),
                                       }));
                                     }}
                                     style={{ marginTop: 2 }}
                                   />
-                                  <div style={{ fontSize: 13, lineHeight: 1.3 }}>
-                                    <div style={{ fontWeight: 600 }}>#{product.id} - {product.title}</div>
-                                    <div style={{ color: "#94a3b8" }}>{product.origin_type || "unknown"}</div>
+                                  <div
+                                    style={{ fontSize: 13, lineHeight: 1.3 }}
+                                  >
+                                    <div style={{ fontWeight: 600 }}>
+                                      #{product.id} - {product.title}
+                                    </div>
+                                    <div style={{ color: "#94a3b8" }}>
+                                      {product.origin_type || "unknown"}
+                                    </div>
                                   </div>
                                 </label>
                               );
                             })}
                           </div>
 
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button className="button primary" onClick={() => void createBundle()}>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <button
+                              className="button primary"
+                              onClick={() => void createBundle()}
+                            >
                               Crea bundle
                             </button>
                             <button
@@ -2348,7 +3050,10 @@ function App() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="lightbox-content"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               className="lightbox-close button secondary"
               onClick={() => setViewerOpen(false)}
@@ -2356,20 +3061,14 @@ function App() {
               Chiudi
             </button>
             <div className="lightbox-nav">
-              <button
-                className="button"
-                onClick={() => moveViewer(-1)}
-              >
+              <button className="button" onClick={() => moveViewer(-1)}>
                 ‹
               </button>
               <img
                 src={selected.images[viewerIndex]?.url}
                 alt={selected.title}
               />
-              <button
-                className="button"
-                onClick={() => moveViewer(1)}
-              >
+              <button className="button" onClick={() => moveViewer(1)}>
                 ›
               </button>
             </div>
@@ -2380,7 +3079,9 @@ function App() {
         open={creating}
         draft={newProductDraft}
         onClose={() => setCreating(false)}
-        onChange={(patch) => setNewProductDraft((d) => ({ ...(d || {}), ...patch }))}
+        onChange={(patch) =>
+          setNewProductDraft((d) => ({ ...(d || {}), ...patch }))
+        }
         onCreate={createNewProduct}
         tags={tags}
       />
@@ -2390,7 +3091,14 @@ function App() {
 }
 
 // render creation modal near root so it overlays whole app
-function CreationModal({ open, draft, onClose, onChange, onCreate, tags }: {
+function CreationModal({
+  open,
+  draft,
+  onClose,
+  onChange,
+  onCreate,
+  tags,
+}: {
   open: boolean;
   draft: Partial<ProductDetail>;
   onClose: () => void;
@@ -2404,16 +3112,36 @@ function CreationModal({ open, draft, onClose, onChange, onCreate, tags }: {
       <div className="modal">
         <h3>Nuovo prodotto</h3>
         <label>Title</label>
-        <input className="input" value={draft.title || ""} onChange={(e) => onChange({ title: e.target.value })} />
+        <input
+          className="input"
+          value={draft.title || ""}
+          onChange={(e) => onChange({ title: e.target.value })}
+        />
         <label>Description</label>
-        <textarea className="textarea" value={draft.description || ""} onChange={(e) => onChange({ description: e.target.value })} />
+        <textarea
+          className="textarea"
+          value={draft.description || ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+        />
         <label>Brand</label>
-        <input className="input" value={draft.brand || ""} onChange={(e) => onChange({ brand: e.target.value })} />
+        <input
+          className="input"
+          value={draft.brand || ""}
+          onChange={(e) => onChange({ brand: e.target.value })}
+        />
         <label>Origin type</label>
-        <input className="input" value={draft.origin_type || ""} onChange={(e) => onChange({ origin_type: e.target.value })} />
+        <input
+          className="input"
+          value={draft.origin_type || ""}
+          onChange={(e) => onChange({ origin_type: e.target.value })}
+        />
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button className="button primary" onClick={onCreate}>Crea</button>
-          <button className="button secondary" onClick={onClose}>Annulla</button>
+          <button className="button primary" onClick={onCreate}>
+            Crea
+          </button>
+          <button className="button secondary" onClick={onClose}>
+            Annulla
+          </button>
         </div>
       </div>
     </div>

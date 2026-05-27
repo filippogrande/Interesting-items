@@ -12,6 +12,7 @@ from redis import Redis
 from .tasks import scrape_job
 import asyncio
 from collections import defaultdict, deque
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -135,14 +136,52 @@ async def cmd_start(message: types.Message):
 
 # --- Coda centrale per sito web ---
 # Coda per tipologia (es. vinted, wallapop)
-site_queues = defaultdict(deque)  # {site_type: deque[(url, user_id, chat_id)]}
+site_queues = defaultdict(deque)  # in-memory mirrors (used for quick access)
 site_processing = {}  # {site_type: asyncio.Task}
 
 
-def total_queue_size(site: str | None = None) -> int:
+def redis_queue_key(site: str) -> str:
+    return f"scrape_queue:{site}"
+
+
+def enqueue_to_redis(site: str, url: str, user_id: int, chat_id: int):
+    key = redis_queue_key(site)
+    payload = json.dumps({"url": url, "user_id": user_id, "chat_id": chat_id})
+    redis_conn.rpush(key, payload)
+
+
+def pop_from_redis(site: str) -> dict | None:
+    key = redis_queue_key(site)
+    raw = redis_conn.lpop(key)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        logger.exception("Invalid payload in redis queue for %s: %s", site, raw)
+        return None
+
+
+def redis_queue_length(site: str | None = None) -> int:
     if site is None:
-        return sum(len(queue) for queue in site_queues.values())
-    return len(site_queues[site])
+        total = 0
+        for k in redis_conn.keys("scrape_queue:*"):
+            try:
+                total += int(redis_conn.llen(k))
+            except Exception:
+                continue
+        return total
+    return int(redis_conn.llen(redis_queue_key(site)))
+
+
+def total_queue_size(site: str | None = None) -> int:
+    try:
+        return redis_queue_length(site)
+    except Exception:
+        # fallback to in-memory representation
+        if site is None:
+            return sum(len(queue) for queue in site_queues.values())
+        return len(site_queues[site])
 
 
 def estimate_remaining_seconds(pending_items: int) -> int:
@@ -181,44 +220,57 @@ def get_site_type(url: str) -> str:
         return 'unsupported'
 
 async def process_site_queue(site: str):
-    while site_queues[site]:
-        url, user_id, chat_id = site_queues[site][0]
-        try:
-            await bot.send_message(chat_id, f"Inizio scraping: {url}")
-            if site == 'vinted':
-                from .vinted import scrape_vinted
-                result = await asyncio.to_thread(scrape_vinted, url)
-            elif site == 'wallapop':
-                await bot.send_message(chat_id, "❌ Funzione wallapop non ancora implementata.")
-                result = False
-            elif site == 'aliexpress':
-                try:
-                    from .aliexpress import scrape_aliexpress
-                    result = await asyncio.to_thread(scrape_aliexpress, url)
-                except Exception as e:
-                    await bot.send_message(chat_id, f"❌ Errore AliExpress: {e}")
+    """Pop items from Redis-backed list and process them sequentially.
+
+    This keeps the queue persistent across restarts. Each item is a JSON
+    object with keys: url, user_id, chat_id.
+    """
+    try:
+        while True:
+            item = pop_from_redis(site)
+            if item is None:
+                break
+            url = item.get("url")
+            user_id = item.get("user_id")
+            chat_id = item.get("chat_id")
+            try:
+                await bot.send_message(chat_id, f"Inizio scraping: {url}")
+                if site == 'vinted':
+                    from .vinted import scrape_vinted
+                    result = await asyncio.to_thread(scrape_vinted, url)
+                elif site == 'wallapop':
+                    await bot.send_message(chat_id, "❌ Funzione wallapop non ancora implementata.")
                     result = False
+                elif site == 'aliexpress':
+                    try:
+                        from .aliexpress import scrape_aliexpress
+                        result = await asyncio.to_thread(scrape_aliexpress, url)
+                    except Exception as e:
+                        await bot.send_message(chat_id, f"❌ Errore AliExpress: {e}")
+                        result = False
+                else:
+                    await bot.send_message(chat_id, f"❌ Sito non supportato: {url}")
+                    result = False
+                if result:
+                    await bot.send_message(chat_id, f"✅ Finito: {url}")
+                else:
+                    await bot.send_message(chat_id, f"❌ Errore durante scraping: {url}")
+            except Exception as e:
+                await bot.send_message(chat_id, f"❌ Errore imprevisto su {url}: {e}")
+
+            remaining = total_queue_size(site)
+            if remaining > 0:
+                eta = format_duration(estimate_remaining_seconds(remaining))
+                await bot.send_message(
+                    chat_id,
+                    f"Rimangono {remaining} prodotti in coda — stima residua: circa {eta}",
+                )
             else:
-                await bot.send_message(chat_id, f"❌ Sito non supportato: {url}")
-                result = False
-            if result:
-                await bot.send_message(chat_id, f"✅ Finito: {url}")
-            else:
-                await bot.send_message(chat_id, f"❌ Errore durante scraping: {url}")
-        except Exception as e:
-            await bot.send_message(chat_id, f"❌ Errore imprevisto su {url}: {e}")
-        site_queues[site].popleft()
-        remaining = total_queue_size(site)
-        if remaining > 0:
-            eta = format_duration(estimate_remaining_seconds(remaining))
-            await bot.send_message(
-                chat_id,
-                f"Rimangono {remaining} prodotti in coda — stima residua: circa {eta}",
-            )
-        else:
-            await bot.send_message(chat_id, "Rimangono 0 prodotti in coda")
-        await asyncio.sleep(180)  # 3 minuti tra uno scraping e l'altro per tipologia
-    site_processing.pop(site, None)
+                await bot.send_message(chat_id, "Rimangono 0 prodotti in coda")
+
+            await asyncio.sleep(BETWEEN_SCRAPES_SECONDS)
+    finally:
+        site_processing.pop(site, None)
 
 @router.message()
 async def handle_message(message: types.Message):
@@ -268,7 +320,12 @@ async def handle_message(message: types.Message):
         if site_type == 'unsupported':
             await message.reply(f"❌ Sito non supportato: {normalized}")
             continue
-        site_queues[site_type].append((normalized, user.id, message.chat.id))
+        # push to persistent Redis-backed queue
+        try:
+            enqueue_to_redis(site_type, normalized, user.id, message.chat.id)
+        except Exception:
+            # fallback to in-memory queue if Redis unavailable
+            site_queues[site_type].append((normalized, user.id, message.chat.id))
         added += 1
         queue_size = total_queue_size(site_type)
         eta = format_duration(estimate_remaining_seconds(queue_size))
@@ -292,6 +349,20 @@ def run_polling():
                     await bot.send_message(uid, "Il bot si è avviato e sono pronto a ricevere link.")
                 except Exception as e:
                     logger.warning("Impossibile notificare l'utente %s: %s", uid, e)
+        # ripristina eventuali code persistenti in Redis all'avvio
+        try:
+            keys = redis_conn.keys("scrape_queue:*")
+            for k in keys:
+                try:
+                    site = k.decode().split(":", 1)[1] if isinstance(k, bytes) else str(k).split(":", 1)[1]
+                    length = int(redis_conn.llen(k))
+                    if length > 0 and site not in site_processing:
+                        site_processing[site] = asyncio.create_task(process_site_queue(site))
+                        logger.info("Riavviata coda persistente per sito %s (items=%d)", site, length)
+                except Exception:
+                    logger.exception("Errore nel ripristinare la chiave di coda %s", k)
+        except Exception:
+            logger.exception("Errore nel controllare le code persistenti in Redis")
 
     dp.include_router(router)
 
