@@ -526,3 +526,24 @@ select optgroup { color: #94a3b8; }
   color: #94a3b8;
   font-size: 0.95rem;
 }
+
+/* Modal / creation form */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+.modal {
+  width: min(760px, 96%);
+  background: rgba(15,23,42,0.96);
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: 18px;
+  border-radius: 12px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+}
+.modal h3 { margin-top: 0; margin-bottom: 8px }
+.modal label { display: block; margin-top: 10px; font-size: 12px; color: #cbd5e1 }

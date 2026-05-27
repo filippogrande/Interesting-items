@@ -198,6 +198,20 @@ function App() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
+  // new product creation state
+  const [creating, setCreating] = useState(false);
+  const [newProductDraft, setNewProductDraft] = useState<Partial<ProductDetail>>({
+    title: "",
+    description: "",
+    brand: "",
+    origin_type: "",
+    archived: false,
+    prices: [],
+    source_urls: [],
+    images: [],
+    tags: [],
+  });
+
   function moveViewer(delta: number) {
     const imageCount = selected?.images.length || 0;
     if (imageCount <= 0) return;
@@ -316,6 +330,33 @@ function App() {
       throw new Error(`HTTP ${response.status}`);
     }
     await refreshDetail(selected.id, true);
+  }
+
+  async function createNewProduct() {
+    setError(null);
+    try {
+      const payload: any = {
+        title: newProductDraft.title || "Untitled",
+        description: newProductDraft.description || "",
+        brand: newProductDraft.brand || null,
+        origin_type: newProductDraft.origin_type || null,
+        archived: !!newProductDraft.archived,
+      };
+      const resp = await fetch(`/api/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const created = await resp.json();
+      // refresh list and open detail
+      await loadProducts(selectedTagId as number | "" | "untagged", selectedSourceSite, excludeTagIds);
+      await loadDetail(created.id);
+      setCreating(false);
+      setNewProductDraft({ title: "", description: "", brand: "", origin_type: "", archived: false, prices: [], source_urls: [], images: [], tags: [] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore creazione prodotto");
+    }
   }
 
   async function toggleProductTag(
@@ -710,6 +751,11 @@ function App() {
             <div className="panel-header">
               <h2>Elenco prodotti</h2>
               <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="button secondary" onClick={() => setCreating(true)}>
+                    + Nuovo prodotto
+                  </button>
+                </div>
                 <input
                   className="search"
                   placeholder="Cerca per titolo, descrizione o origine"
@@ -820,7 +866,7 @@ function App() {
                         </div>
                       )}
 
-                      <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ display: "grid", gap: 8, maxHeight: '50vh', overflow: 'auto', paddingRight: 6 }}>
                         {TAG_KIND_ORDER.map((kind) => {
                           const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
                           if (group.length === 0) return null;
@@ -1719,7 +1765,46 @@ function App() {
           </div>
         </div>
       )}
+      <CreationModal
+        open={creating}
+        draft={newProductDraft}
+        onClose={() => setCreating(false)}
+        onChange={(patch) => setNewProductDraft((d) => ({ ...(d || {}), ...patch }))}
+        onCreate={createNewProduct}
+        tags={tags}
+      />
       <footer className="app-footer">Versione: {appVersion}</footer>
+    </div>
+  );
+}
+
+// render creation modal near root so it overlays whole app
+function CreationModal({ open, draft, onClose, onChange, onCreate, tags }: {
+  open: boolean;
+  draft: Partial<ProductDetail>;
+  onClose: () => void;
+  onChange: (patch: Partial<ProductDetail>) => void;
+  onCreate: () => void;
+  tags: Tag[];
+}) {
+  if (!open) return null;
+  return (
+    <div className="modal-overlay">
+      <div className="modal">
+        <h3>Nuovo prodotto</h3>
+        <label>Title</label>
+        <input className="input" value={draft.title || ""} onChange={(e) => onChange({ title: e.target.value })} />
+        <label>Description</label>
+        <textarea className="textarea" value={draft.description || ""} onChange={(e) => onChange({ description: e.target.value })} />
+        <label>Brand</label>
+        <input className="input" value={draft.brand || ""} onChange={(e) => onChange({ brand: e.target.value })} />
+        <label>Origin type</label>
+        <input className="input" value={draft.origin_type || ""} onChange={(e) => onChange({ origin_type: e.target.value })} />
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button className="button primary" onClick={onCreate}>Crea</button>
+          <button className="button secondary" onClick={onClose}>Annulla</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1766,3 +1851,5 @@ function Kpi({ label, value }: { label: string; value: string }) {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+// render modal by mounting another root-level component via portal-like insertion
+// We attach CreationModal by enhancing App render with globals: simple approach - re-render within App
