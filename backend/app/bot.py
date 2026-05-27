@@ -83,6 +83,9 @@ def build_allowed_domains(env_value: str | None):
 
 ALLOWED_DOMAINS = build_allowed_domains(ALLOWED_DOMAINS_ENV)
 
+SCRAPE_MAX_SECONDS = 10
+BETWEEN_SCRAPES_SECONDS = 180
+
 
 
 def is_allowed_domain(netloc: str) -> bool:
@@ -135,6 +138,33 @@ async def cmd_start(message: types.Message):
 site_queues = defaultdict(deque)  # {site_type: deque[(url, user_id, chat_id)]}
 site_processing = {}  # {site_type: asyncio.Task}
 
+
+def total_queue_size(site: str | None = None) -> int:
+    if site is None:
+        return sum(len(queue) for queue in site_queues.values())
+    return len(site_queues[site])
+
+
+def estimate_remaining_seconds(pending_items: int) -> int:
+    if pending_items <= 0:
+        return 0
+    return pending_items * (SCRAPE_MAX_SECONDS + BETWEEN_SCRAPES_SECONDS)
+
+
+def format_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0s"
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if secs or not parts:
+        parts.append(f"{secs}s")
+    return " ".join(parts)
+
 def get_site_type(url: str) -> str:
     try:
         netloc = urlparse(url).netloc.lower()
@@ -178,6 +208,15 @@ async def process_site_queue(site: str):
         except Exception as e:
             await bot.send_message(chat_id, f"❌ Errore imprevisto su {url}: {e}")
         site_queues[site].popleft()
+        remaining = total_queue_size(site)
+        if remaining > 0:
+            eta = format_duration(estimate_remaining_seconds(remaining))
+            await bot.send_message(
+                chat_id,
+                f"Rimangono {remaining} prodotti in coda — stima residua: circa {eta}",
+            )
+        else:
+            await bot.send_message(chat_id, "Rimangono 0 prodotti in coda")
         await asyncio.sleep(180)  # 3 minuti tra uno scraping e l'altro per tipologia
     site_processing.pop(site, None)
 
@@ -231,7 +270,13 @@ async def handle_message(message: types.Message):
             continue
         site_queues[site_type].append((normalized, user.id, message.chat.id))
         added += 1
-        await message.reply(f"URL aggiunto in coda per {site_type}: {normalized}")
+        queue_size = total_queue_size(site_type)
+        eta = format_duration(estimate_remaining_seconds(queue_size))
+        await message.reply(
+            f"URL aggiunto in coda per {site_type}: {normalized}\n"
+            f"Posizione in coda: {queue_size}\n"
+            f"Stima residua: circa {eta}"
+        )
         # Se non c'è già un task attivo per questa tipologia, avvialo
         if site_type not in site_processing:
             site_processing[site_type] = asyncio.create_task(process_site_queue(site_type))

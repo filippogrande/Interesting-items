@@ -866,7 +866,15 @@ function App() {
                         </div>
                       )}
 
-                      <div style={{ display: "grid", gap: 8, maxHeight: '50vh', overflow: 'auto', paddingRight: 6 }}>
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 8,
+                          maxHeight: "260px",
+                          overflowY: "auto",
+                          paddingRight: 6,
+                        }}
+                      >
                         {TAG_KIND_ORDER.map((kind) => {
                           const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
                           if (group.length === 0) return null;

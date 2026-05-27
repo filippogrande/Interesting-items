@@ -157,6 +157,12 @@ a {
   min-height: 680px;
 }
 
+.detail-panel {
+  align-self: start;
+  position: sticky;
+  top: 32px;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -498,6 +504,10 @@ select optgroup { color: #94a3b8; }
   .two-columns,
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .detail-panel {
+    position: static;
   }
 }
 
