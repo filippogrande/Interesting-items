@@ -197,7 +197,7 @@ function App() {
   const [selectedSourceSite, setSelectedSourceSite] = useState<string>("");
   const [excludeTagIds, setExcludeTagIds] = useState<number[]>([]);
   const [excludeTagsExpanded, setExcludeTagsExpanded] = useState(false);
-  const [view, setView] = useState<"dashboard" | "tags" | "sources">(
+  const [view, setView] = useState<"dashboard" | "tags" | "sources" | "merge">(
     "dashboard",
   );
   const [tagsStats, setTagsStats] = useState<{
@@ -210,6 +210,21 @@ function App() {
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+
+  const [mergeCandidateDetail, setMergeCandidateDetail] = useState<ProductDetail | null>(null);
+  const [mergeCandidateLoading, setMergeCandidateLoading] = useState(false);
+  const [mergeDraft, setMergeDraft] = useState({
+    title: "",
+    description: "",
+    brand: "",
+    origin_type: "",
+    product_metadata: "",
+    category_id: "",
+    archived: false,
+  });
+  const [mergeSelectedImageIds, setMergeSelectedImageIds] = useState<number[]>([]);
+  const [mergeSelectedPriceIds, setMergeSelectedPriceIds] = useState<number[]>([]);
+  const [mergeSelectedSourceUrlIds, setMergeSelectedSourceUrlIds] = useState<number[]>([]);
 
   // new product creation state
   const [creating, setCreating] = useState(false);
@@ -233,8 +248,17 @@ function App() {
     notes: "",
     productIds: [] as number[],
   });
-  const [mergeSourceId, setMergeSourceId] = useState<number | "">("");
-  const [mergeTargetId, setMergeTargetId] = useState<number | "">("");
+  function buildMergeDraft(product: ProductDetail) {
+    return {
+      title: product.title || "",
+      description: product.description || "",
+      brand: product.brand || "",
+      origin_type: product.origin_type || "",
+      product_metadata: "",
+      category_id: "",
+      archived: product.archived,
+    };
+  }
 
   function moveViewer(delta: number) {
     const imageCount = selected?.images.length || 0;
@@ -335,6 +359,26 @@ function App() {
     setEditingTagIds(detail.tags.map((t) => t.id));
   }
 
+  async function loadMergeCandidate(productId: number) {
+    setMergeCandidateLoading(true);
+    setError(null);
+    try {
+      const detail = await fetchJson<ProductDetail>(
+        `/api/dashboard/products/${productId}`,
+      );
+      setMergeCandidateDetail(detail);
+      setMergeSelectedImageIds(detail.images.map((image) => image.id));
+      setMergeSelectedPriceIds(detail.prices.map((price) => price.id));
+      setMergeSelectedSourceUrlIds(detail.source_urls.map((source) => source.id));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Errore caricamento prodotto merge",
+      );
+    } finally {
+      setMergeCandidateLoading(false);
+    }
+  }
+
   async function deleteProductImage(imageId: number) {
     if (!selected) return;
     if (!confirm("Eliminare questa immagine?")) return;
@@ -428,12 +472,12 @@ function App() {
     }
   }
 
-  async function mergeProducts() {
-    if (!mergeSourceId || !mergeTargetId) {
-      setError("Seleziona sia il prodotto sorgente sia quello destinazione");
+  async function commitMerge() {
+    if (!selected || !mergeCandidateDetail) {
+      setError("Seleziona un prodotto principale e uno da mergiare");
       return;
     }
-    if (mergeSourceId === mergeTargetId) {
+    if (selected.id === mergeCandidateDetail.id) {
       setError("I due prodotti devono essere diversi");
       return;
     }
@@ -442,14 +486,27 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source_product_id: Number(mergeSourceId),
-          target_product_id: Number(mergeTargetId),
+          main_product_id: selected.id,
+          merge_product_id: mergeCandidateDetail.id,
+          title: mergeDraft.title,
+          description: mergeDraft.description,
+          brand: mergeDraft.brand,
+          origin_type: mergeDraft.origin_type,
+          product_metadata: mergeDraft.product_metadata || null,
+          category_id: mergeDraft.category_id ? Number(mergeDraft.category_id) : null,
+          archived: mergeDraft.archived,
+          selected_image_ids: mergeSelectedImageIds,
+          selected_price_ids: mergeSelectedPriceIds,
+          selected_source_url_ids: mergeSelectedSourceUrlIds,
         }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const merged = await resp.json();
-      setMergeSourceId("");
-      setMergeTargetId("");
+      setMergeCandidateDetail(null);
+      setMergeSelectedImageIds([]);
+      setMergeSelectedPriceIds([]);
+      setMergeSelectedSourceUrlIds([]);
+      setView("dashboard");
       await loadProducts(
         selectedTagId as number | "" | "untagged",
         selectedSourceSite,
@@ -534,6 +591,18 @@ function App() {
       productIds: Array.from(new Set([selected.id, ...current.productIds])),
     }));
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (view !== "merge" || !selected) return;
+    setMergeDraft(buildMergeDraft(selected));
+  }, [view, selected?.id]);
+
+  useEffect(() => {
+    if (view !== "merge" || !mergeCandidateDetail) return;
+    setMergeSelectedImageIds(mergeCandidateDetail.images.map((image) => image.id));
+    setMergeSelectedPriceIds(mergeCandidateDetail.prices.map((price) => price.id));
+    setMergeSelectedSourceUrlIds(mergeCandidateDetail.source_urls.map((source) => source.id));
+  }, [view, mergeCandidateDetail?.id]);
 
   useEffect(() => {
     void loadSourceWebsitesStats();
@@ -698,6 +767,16 @@ function App() {
         <StatCard label="Immagini" value={stats.images} />
         <StatCard label="Prezzi" value={stats.prices} />
         <StatCard
+          label="Unisci i prodotti"
+          value="↔"
+          onClick={() => {
+            setView("merge");
+            if (selected) {
+              setMergeDraft(buildMergeDraft(selected));
+            }
+          }}
+        />
+        <StatCard
           label="Source websites"
           value={stats.sources}
           onClick={() => {
@@ -716,7 +795,264 @@ function App() {
       </section>
 
       <main className="layout">
-        {view === "tags" ? (
+        {view === "merge" ? (
+          <section className="panel list-panel" style={{ gridColumn: "1 / -1" }}>
+            <div className="panel-header">
+              <h2>Unisci i prodotti</h2>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="button secondary" onClick={() => setView("dashboard")}>Indietro</button>
+                <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>
+                  Salva merge
+                </button>
+              </div>
+            </div>
+
+            {error && <div className="error-box">{error}</div>}
+
+            <div style={{ marginBottom: 16 }}>
+              <input
+                className="search"
+                placeholder="Cerca prodotti da confrontare"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }}>
+              <div className="panel" style={{ minHeight: 0 }}>
+                <div className="panel-header">
+                  <h3>Main</h3>
+                  <span className="muted">Prodotto da mantenere</span>
+                </div>
+                <div className="product-list" style={{ marginBottom: 14 }}>
+                  {filteredProducts.map((product) => (
+                    <button
+                      key={`merge-main-${product.id}`}
+                      className={`product-card ${selected?.id === product.id ? "active" : ""}`}
+                      onClick={() => void loadDetail(product.id)}
+                    >
+                      <div className="product-card-media">
+                        {product.cover_image_url ? (
+                          <img src={product.cover_image_url} alt={product.title} />
+                        ) : (
+                          <div className="placeholder">No image</div>
+                        )}
+                      </div>
+                      <div className="product-card-body">
+                        <div className="product-card-topline">
+                          <span>{product.origin_type || "unknown"}</span>
+                          <span>{formatDate(product.scraped_at || product.created_at)}</span>
+                        </div>
+                        <h3>{product.title}</h3>
+                        <p>{product.description}</p>
+                        <div className="product-card-meta">
+                          <span>{product.images_count} img</span>
+                          <span>{product.prices_count} prezzi</span>
+                          <span>{product.bundles_count || 0} bundle</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {selected ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>#{selected.id} - {selected.title}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{selected.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>{selected.images.length} / {selected.prices.length}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">Seleziona il prodotto principale.</div>
+                )}
+              </div>
+
+              <div className="panel" style={{ minHeight: 0 }}>
+                <div className="panel-header">
+                  <h3>Da mergiare</h3>
+                  <span className="muted">Prodotto che verrà eliminato</span>
+                </div>
+                <div className="product-list" style={{ marginBottom: 14 }}>
+                  {filteredProducts
+                    .filter((product) => product.id !== selected?.id)
+                    .map((product) => (
+                      <button
+                        key={`merge-source-${product.id}`}
+                        className={`product-card ${mergeCandidateDetail?.id === product.id ? "active" : ""}`}
+                        onClick={() => void loadMergeCandidate(product.id)}
+                      >
+                        <div className="product-card-media">
+                          {product.cover_image_url ? (
+                            <img src={product.cover_image_url} alt={product.title} />
+                          ) : (
+                            <div className="placeholder">No image</div>
+                          )}
+                        </div>
+                        <div className="product-card-body">
+                          <div className="product-card-topline">
+                            <span>{product.origin_type || "unknown"}</span>
+                            <span>{formatDate(product.scraped_at || product.created_at)}</span>
+                          </div>
+                          <h3>{product.title}</h3>
+                          <p>{product.description}</p>
+                          <div className="product-card-meta">
+                            <span>{product.images_count} img</span>
+                            <span>{product.prices_count} prezzi</span>
+                            <span>{product.bundles_count || 0} bundle</span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+                {mergeCandidateDetail ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>#{mergeCandidateDetail.id} - {mergeCandidateDetail.title}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{mergeCandidateDetail.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>{mergeCandidateDetail.images.length} / {mergeCandidateDetail.prices.length}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">Seleziona il prodotto da mergiare.</div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
+              <div className="editing-panel">
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>Campi da salvare sul prodotto principale</h4>
+                <div style={{ display: "grid", gap: 12 }}>
+                  {([
+                    ["title", "Titolo"],
+                    ["description", "Descrizione"],
+                    ["brand", "Brand"],
+                    ["origin_type", "Origine"],
+                  ] as Array<[keyof typeof mergeDraft, string]>).map(([field, label]) => (
+                    <div key={field as string} style={{ display: "grid", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ minWidth: 110, color: "#94a3b8", fontSize: 12, textTransform: "uppercase", fontWeight: 700 }}>{label}</span>
+                        <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, [field]: selected ? (selected as any)[field] || "" : "" }))}>
+                          Sinistra
+                        </button>
+                        <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, [field]: mergeCandidateDetail ? (mergeCandidateDetail as any)[field] || "" : "" }))}>
+                          Destra
+                        </button>
+                      </div>
+                      {field === "description" ? (
+                        <textarea
+                          className="textarea"
+                          value={mergeDraft.description}
+                          onChange={(e) => setMergeDraft((current) => ({ ...current, description: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          className="input"
+                          value={(mergeDraft as any)[field]}
+                          onChange={(e) => setMergeDraft((current) => ({ ...current, [field]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ minWidth: 110, color: "#94a3b8", fontSize: 12, textTransform: "uppercase", fontWeight: 700 }}>Archiviato</span>
+                      <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((current) => ({ ...current, archived: !current.archived }))}>
+                        {mergeDraft.archived ? "Sì" : "No"}
+                      </button>
+                      <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, archived: selected?.archived ?? false }))}>
+                        Sinistra
+                      </button>
+                      <button className="button tiny" onClick={() => setMergeDraft((current) => ({ ...current, archived: mergeCandidateDetail?.archived ?? false }))}>
+                        Destra
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="editing-panel">
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini, prezzi e link da importare dalla destra</h4>
+                {mergeCandidateDetail ? (
+                  <div style={{ display: "grid", gap: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Immagini</div>
+                      <div className="gallery" style={{ margin: 0 }}>
+                        {mergeCandidateDetail.images.map((image) => {
+                          const checked = mergeSelectedImageIds.includes(image.id);
+                          return (
+                            <label key={`merge-image-${image.id}`} className="gallery-item" style={{ position: "relative", display: "block", cursor: "pointer", border: checked ? "2px solid rgba(96,165,250,0.9)" : undefined }}>
+                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedImageIds((current) => current.includes(image.id) ? current.filter((id) => id !== image.id) : [...current, image.id])} style={{ position: "absolute", top: 8, left: 8, zIndex: 2 }} />
+                              {image.url ? <img src={image.url} alt={mergeCandidateDetail.title} /> : <div className="placeholder">No image</div>}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Prezzi</div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {mergeCandidateDetail.prices.map((price) => {
+                          const checked = mergeSelectedPriceIds.includes(price.id);
+                          const relatedSource = mergeCandidateDetail.source_urls.find((source) => source.id === price.id) || mergeCandidateDetail.source_urls[0];
+                          return (
+                            <label key={`merge-price-${price.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
+                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedPriceIds((current) => current.includes(price.id) ? current.filter((id) => id !== price.id) : [...current, price.id])} style={{ marginTop: 2 }} />
+                              <div style={{ display: "grid", gap: 4 }}>
+                                <strong>{formatMoney(price.amount, price.currency)}</strong>
+                                <span>{derivePlatformLabel(price, relatedSource)}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 }}>Link</div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {mergeCandidateDetail.source_urls.map((source) => {
+                          const checked = mergeSelectedSourceUrlIds.includes(source.id);
+                          return (
+                            <label key={`merge-source-${source.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
+                              <input type="checkbox" checked={checked} onChange={() => setMergeSelectedSourceUrlIds((current) => current.includes(source.id) ? current.filter((id) => id !== source.id) : [...current, source.id])} style={{ marginTop: 2 }} />
+                              <div style={{ display: "grid", gap: 4 }}>
+                                <a href={source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(undefined, source)}</a>
+                                <small>{source.url}</small>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">Seleziona il prodotto di destra per importare immagini, prezzi e link.</div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="button secondary" onClick={() => setView("dashboard")}>Annulla</button>
+              <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
+            </div>
+          </section>
+        ) : view === "tags" ? (
           <section className="panel list-panel">
             <div className="panel-header">
               <h2>Tags</h2>
@@ -741,74 +1077,6 @@ function App() {
             </div>
 
             {error && <div className="error-box">{error}</div>}
-
-            <div
-              className="merge-panel"
-              style={{
-                marginBottom: 16,
-                padding: 14,
-                borderRadius: 18,
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.03)",
-              }}
-            >
-              <div className="panel-header" style={{ marginBottom: 12 }}>
-                <h3 style={{ margin: 0 }}>Unisci prodotti</h3>
-                <span className="muted">Sposta immagini, prezzi, link e tag nel prodotto finale</span>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <div style={{ display: "grid", gap: 8 }}>
-                  <span style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700 }}>Prodotto sorgente</span>
-                  <select
-                    className="input"
-                    value={mergeSourceId}
-                    onChange={(event) => setMergeSourceId(event.target.value ? Number(event.target.value) : "")}
-                  >
-                    <option value="">Seleziona prodotto da assorbire</option>
-                    {products.map((product) => (
-                      <option key={`merge-source-${product.id}`} value={product.id}>
-                        #{product.id} - {product.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <span style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700 }}>Prodotto destinazione</span>
-                  <select
-                    className="input"
-                    value={mergeTargetId}
-                    onChange={(event) => setMergeTargetId(event.target.value ? Number(event.target.value) : "")}
-                  >
-                    <option value="">Seleziona prodotto finale</option>
-                    {products.map((product) => (
-                      <option key={`merge-target-${product.id}`} value={product.id}>
-                        #{product.id} - {product.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <button className="button primary" onClick={() => void mergeProducts()}>
-                  Unisci ora
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={() => {
-                    setMergeSourceId("");
-                    setMergeTargetId("");
-                  }}
-                >
-                  Svuota
-                </button>
-              </div>
-            </div>
 
             <div style={{ display: "grid", gap: 8 }}>
               <button
@@ -1576,162 +1844,6 @@ function App() {
                 </div>
               )}
 
-              <div style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 8,
-                  }}
-                >
-                  <h4 style={{ margin: 0 }}>Bundle</h4>
-                  <button
-                    className="button secondary"
-                    onClick={() => setBundleCreatorOpen((current) => !current)}
-                  >
-                    {bundleCreatorOpen ? "Chiudi crea bundle" : "+ Crea bundle"}
-                  </button>
-                </div>
-
-                {selected.bundles.length > 0 ? (
-                  <div style={{ display: "grid", gap: 10, marginBottom: 12 }}>
-                    {selected.bundles.map((bundle) => (
-                      <div
-                        key={bundle.id}
-                        style={{
-                          padding: 12,
-                          borderRadius: 16,
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                          <strong>{bundle.title}</strong>
-                          <span className="badge muted">
-                            {formatMoney(bundle.amount, bundle.currency)}
-                          </span>
-                        </div>
-                        <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
-                          <a href={bundle.source_url} target="_blank" rel="noreferrer">
-                            {bundle.source_domain || bundle.source_url}
-                          </a>
-                          <small style={{ color: "#94a3b8" }}>
-                            {bundle.product_ids.length} prodotti nel bundle
-                          </small>
-                          {bundle.notes && <small style={{ color: "#94a3b8" }}>{bundle.notes}</small>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state" style={{ marginBottom: 12 }}>
-                    Nessun bundle collegato.
-                  </div>
-                )}
-
-                {bundleCreatorOpen && (
-                  <div className="editing-panel" style={{ marginBottom: 0 }}>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <input
-                        className="input"
-                        placeholder="Titolo bundle (facoltativo)"
-                        value={bundleDraft.title}
-                        onChange={(e) => setBundleDraft((current) => ({ ...current, title: e.target.value }))}
-                      />
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          className="input"
-                          placeholder="Prezzo bundle"
-                          value={bundleDraft.amount}
-                          onChange={(e) => setBundleDraft((current) => ({ ...current, amount: e.target.value }))}
-                          style={{ width: 140 }}
-                        />
-                        <input
-                          className="input"
-                          placeholder="EUR"
-                          value={bundleDraft.currency}
-                          onChange={(e) => setBundleDraft((current) => ({ ...current, currency: e.target.value }))}
-                          style={{ width: 100 }}
-                        />
-                      </div>
-                      <input
-                        className="input"
-                        placeholder="Link bundle"
-                        value={bundleDraft.sourceUrl}
-                        onChange={(e) => setBundleDraft((current) => ({ ...current, sourceUrl: e.target.value }))}
-                      />
-                      <textarea
-                        className="textarea"
-                        placeholder="Note facoltative"
-                        value={bundleDraft.notes}
-                        onChange={(e) => setBundleDraft((current) => ({ ...current, notes: e.target.value }))}
-                      />
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: 8,
-                          maxHeight: 260,
-                          overflowY: "auto",
-                          paddingRight: 6,
-                        }}
-                      >
-                        <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700 }}>
-                          Prodotti nel bundle
-                        </div>
-                        {products.map((product) => {
-                          const checked = bundleDraft.productIds.includes(product.id);
-                          return (
-                            <label
-                              key={`bundle-product-${product.id}`}
-                              className={`tag-option ${checked ? "selected" : ""}`}
-                              style={{ cursor: "pointer" }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  setBundleDraft((current) => ({
-                                    ...current,
-                                    productIds: checked
-                                      ? current.productIds.filter((id) => id !== product.id)
-                                      : Array.from(new Set([...current.productIds, product.id])),
-                                  }));
-                                }}
-                                style={{ marginTop: 2 }}
-                              />
-                              <div style={{ fontSize: 13, lineHeight: 1.3 }}>
-                                <div style={{ fontWeight: 600 }}>#{product.id} - {product.title}</div>
-                                <div style={{ color: "#94a3b8" }}>{product.origin_type || "unknown"}</div>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button className="button primary" onClick={() => void createBundle()}>
-                          Crea bundle
-                        </button>
-                        <button
-                          className="button secondary"
-                          onClick={() =>
-                            setBundleDraft((current) => ({
-                              ...current,
-                              productIds: selected ? [selected.id] : [],
-                            }))
-                          }
-                        >
-                          Reset prodotti
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               <div className="gallery">
                 {selected.images.map((image) => (
                   <div
@@ -2063,6 +2175,162 @@ function App() {
                       </li>
                     )}
                   </ul>
+
+                  <div style={{ marginTop: 16, marginBottom: 16 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <h4 style={{ margin: 0 }}>Bundle</h4>
+                      <button
+                        className="button secondary"
+                        onClick={() => setBundleCreatorOpen((current) => !current)}
+                      >
+                        {bundleCreatorOpen ? "Chiudi crea bundle" : "+ Crea bundle"}
+                      </button>
+                    </div>
+
+                    {selected.bundles.length > 0 ? (
+                      <div style={{ display: "grid", gap: 10, marginBottom: 12 }}>
+                        {selected.bundles.map((bundle) => (
+                          <div
+                            key={bundle.id}
+                            style={{
+                              padding: 12,
+                              borderRadius: 16,
+                              background: "rgba(255,255,255,0.04)",
+                              border: "1px solid rgba(255,255,255,0.06)",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                              <strong>{bundle.title}</strong>
+                              <span className="badge muted">
+                                {formatMoney(bundle.amount, bundle.currency)}
+                              </span>
+                            </div>
+                            <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
+                              <a href={bundle.source_url} target="_blank" rel="noreferrer">
+                                {bundle.source_domain || bundle.source_url}
+                              </a>
+                              <small style={{ color: "#94a3b8" }}>
+                                {bundle.product_ids.length} prodotti nel bundle
+                              </small>
+                              {bundle.notes && <small style={{ color: "#94a3b8" }}>{bundle.notes}</small>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-state" style={{ marginBottom: 12 }}>
+                        Nessun bundle collegato.
+                      </div>
+                    )}
+
+                    {bundleCreatorOpen && (
+                      <div className="editing-panel" style={{ marginBottom: 0 }}>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <input
+                            className="input"
+                            placeholder="Titolo bundle (facoltativo)"
+                            value={bundleDraft.title}
+                            onChange={(e) => setBundleDraft((current) => ({ ...current, title: e.target.value }))}
+                          />
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <input
+                              className="input"
+                              placeholder="Prezzo bundle"
+                              value={bundleDraft.amount}
+                              onChange={(e) => setBundleDraft((current) => ({ ...current, amount: e.target.value }))}
+                              style={{ width: 140 }}
+                            />
+                            <input
+                              className="input"
+                              placeholder="EUR"
+                              value={bundleDraft.currency}
+                              onChange={(e) => setBundleDraft((current) => ({ ...current, currency: e.target.value }))}
+                              style={{ width: 100 }}
+                            />
+                          </div>
+                          <input
+                            className="input"
+                            placeholder="Link bundle"
+                            value={bundleDraft.sourceUrl}
+                            onChange={(e) => setBundleDraft((current) => ({ ...current, sourceUrl: e.target.value }))}
+                          />
+                          <textarea
+                            className="textarea"
+                            placeholder="Note facoltative"
+                            value={bundleDraft.notes}
+                            onChange={(e) => setBundleDraft((current) => ({ ...current, notes: e.target.value }))}
+                          />
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: 8,
+                              maxHeight: 260,
+                              overflowY: "auto",
+                              paddingRight: 6,
+                            }}
+                          >
+                            <div style={{ fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700 }}>
+                              Prodotti nel bundle
+                            </div>
+                            {products.map((product) => {
+                              const checked = bundleDraft.productIds.includes(product.id);
+                              return (
+                                <label
+                                  key={`bundle-product-${product.id}`}
+                                  className={`tag-option ${checked ? "selected" : ""}`}
+                                  style={{ cursor: "pointer" }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => {
+                                      setBundleDraft((current) => ({
+                                        ...current,
+                                        productIds: checked
+                                          ? current.productIds.filter((id) => id !== product.id)
+                                          : Array.from(new Set([...current.productIds, product.id])),
+                                      }));
+                                    }}
+                                    style={{ marginTop: 2 }}
+                                  />
+                                  <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+                                    <div style={{ fontWeight: 600 }}>#{product.id} - {product.title}</div>
+                                    <div style={{ color: "#94a3b8" }}>{product.origin_type || "unknown"}</div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button className="button primary" onClick={() => void createBundle()}>
+                              Crea bundle
+                            </button>
+                            <button
+                              className="button secondary"
+                              onClick={() =>
+                                setBundleDraft((current) => ({
+                                  ...current,
+                                  productIds: selected ? [selected.id] : [],
+                                }))
+                              }
+                            >
+                              Reset prodotti
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </>
@@ -2158,7 +2426,7 @@ function StatCard({
   onClick,
 }: {
   label: string;
-  value: number;
+  value: React.ReactNode;
   onClick?: () => void;
 }) {
   return (

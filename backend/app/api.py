@@ -1,5 +1,6 @@
 import shutil
 import os
+from datetime import datetime
 from pathlib import Path
 from itertools import zip_longest
 import re
@@ -94,8 +95,18 @@ class ProductTagAssignmentIn(BaseModel):
 
 
 class ProductMergeIn(BaseModel):
-    source_product_id: int
-    target_product_id: int
+    main_product_id: int
+    merge_product_id: int
+    title: Optional[str] = None
+    description: Optional[str] = None
+    brand: Optional[str] = None
+    origin_type: Optional[str] = None
+    product_metadata: Optional[str] = None
+    category_id: Optional[int] = None
+    archived: Optional[bool] = None
+    selected_image_ids: List[int] = []
+    selected_price_ids: List[int] = []
+    selected_source_url_ids: List[int] = []
 
 
 class BundleCreateIn(BaseModel):
@@ -482,54 +493,69 @@ def delete_product(product_id: int):
 
 @app.post("/api/products/merge", response_model=ProductDetailOut)
 def merge_products(payload: ProductMergeIn):
-    if payload.source_product_id == payload.target_product_id:
-        raise HTTPException(status_code=400, detail="Source and target products must be different")
+    if payload.main_product_id == payload.merge_product_id:
+        raise HTTPException(status_code=400, detail="Main and merge products must be different")
 
     with Session(engine) as session:
-        source = session.get(Product, payload.source_product_id)
-        target = session.get(Product, payload.target_product_id)
-        if not source or not target:
+        main = session.get(Product, payload.main_product_id)
+        source = session.get(Product, payload.merge_product_id)
+        if not main or not source:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # fill missing fields on target from source before moving relations
-        for field_name in ("title", "description", "brand", "origin_type", "product_metadata", "category_id"):
-            target_value = getattr(target, field_name, None)
-            source_value = getattr(source, field_name, None)
-            if (target_value is None or target_value == "") and source_value not in (None, ""):
-                setattr(target, field_name, source_value)
+        if payload.title is not None:
+            main.title = payload.title
+        if payload.description is not None:
+            main.description = payload.description
+        if payload.brand is not None:
+            main.brand = payload.brand
+        if payload.origin_type is not None:
+            main.origin_type = payload.origin_type
+        if payload.product_metadata is not None:
+            main.product_metadata = payload.product_metadata
+        if payload.category_id is not None:
+            main.category_id = payload.category_id
+        if payload.archived is not None:
+            main.archived = payload.archived
 
-        if not target.scraped_at and source.scraped_at:
-            target.scraped_at = source.scraped_at
+        source_image_ids = set(payload.selected_image_ids or [image.id for image in session.exec(select(Image).where(Image.product_id == source.id)).all()])
+        source_price_ids = set(payload.selected_price_ids or [price.id for price in session.exec(select(Price).where(Price.product_id == source.id)).all()])
+        source_url_ids = set(payload.selected_source_url_ids or [src.id for src in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all()])
 
-        # transfer all relations from source to target
-        session.exec(
-            select(Image).where(Image.product_id == source.id)
-        )
         for image in session.exec(select(Image).where(Image.product_id == source.id)).all():
-            image.product_id = target.id
+            if image.id in source_image_ids:
+                image.product_id = main.id
 
         for price in session.exec(select(Price).where(Price.product_id == source.id)).all():
-            price.product_id = target.id
+            if price.id in source_price_ids:
+                price.product_id = main.id
 
         for source_url in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all():
-            source_url.product_id = target.id
+            if source_url.id in source_url_ids:
+                source_url.product_id = main.id
 
         source_tag_ids = [link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all()]
-        target_tag_ids = {link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == target.id)).all()}
+        target_tag_ids = {link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == main.id)).all()}
         for tag_id in source_tag_ids:
             if tag_id not in target_tag_ids:
-                session.add(ProductTagLink(product_id=target.id, tag_id=tag_id))
+                session.add(ProductTagLink(product_id=main.id, tag_id=tag_id))
 
-        session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id))
+        source_bundle_ids = [link.bundle_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == source.id)).all()]
+        target_bundle_ids = {link.bundle_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == main.id)).all()}
+        for bundle_id in source_bundle_ids:
+            if bundle_id not in target_bundle_ids:
+                session.add(BundleProductLink(bundle_id=bundle_id, product_id=main.id))
+
         for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all():
             session.delete(link)
+        for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == source.id)).all():
+            session.delete(link)
 
+        main.updated_at = datetime.utcnow()
         session.delete(source)
-        target.updated_at = source.updated_at if source.updated_at and source.updated_at > target.updated_at else target.updated_at
-        session.add(target)
+        session.add(main)
         session.commit()
-        session.refresh(target)
-        return _serialize_detail(target, session)
+        session.refresh(main)
+        return _serialize_detail(main, session)
 
 
 @app.get("/api/bundles", response_model=List[BundleOut])

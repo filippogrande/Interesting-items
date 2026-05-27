@@ -159,8 +159,7 @@ a {
 
 .detail-panel {
   align-self: start;
-  position: sticky;
-  top: 32px;
+  position: static;
 }
 
 .panel-header {
