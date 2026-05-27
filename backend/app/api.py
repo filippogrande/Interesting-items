@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from storage.db import engine, Product, Image, Price, SourceUrl, Category, Tag, ProductTagLink, TagKind, init_db
+from storage.db import engine, Product, Image, Price, SourceUrl, Category, Tag, ProductTagLink, Bundle, BundleProductLink, TagKind, init_db
 from typing import Dict
 from sqlalchemy import func
 
@@ -93,6 +93,33 @@ class ProductTagAssignmentIn(BaseModel):
     tag_ids: List[int]
 
 
+class ProductMergeIn(BaseModel):
+    source_product_id: int
+    target_product_id: int
+
+
+class BundleCreateIn(BaseModel):
+    title: Optional[str] = None
+    amount: float
+    currency: str = "EUR"
+    source_url: str
+    notes: Optional[str] = None
+    product_ids: List[int]
+
+
+class BundleOut(BaseModel):
+    id: int
+    title: str
+    amount: float
+    currency: str
+    source_url: str
+    source_domain: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    product_ids: List[int] = []
+
+
 class ProductSummaryOut(BaseModel):
     id: int
     title: str
@@ -108,6 +135,7 @@ class ProductSummaryOut(BaseModel):
     source_urls_count: int = 0
     source_links_count: int = 0
     tags_count: int = 0
+    bundles_count: int = 0
     cover_image_url: Optional[str] = None
     latest_price: Optional[float] = None
     latest_currency: Optional[str] = None
@@ -120,6 +148,7 @@ class ProductDetailOut(ProductSummaryOut):
     prices: List[PriceOut] = []
     source_urls: List[SourceUrlOut] = []
     tags: List[TagOut] = []
+    bundles: List[BundleOut] = []
 
 
 def _to_media_url(filename: Optional[str]) -> Optional[str]:
@@ -221,6 +250,37 @@ def _product_source_labels(session: Session, product_id: int) -> List[str]:
     return labels
 
 
+def _bundle_product_ids(session: Session, bundle_id: int) -> List[int]:
+    return [link.product_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.bundle_id == bundle_id)).all()]
+
+
+def _serialize_bundle(session: Session, bundle: Bundle) -> BundleOut:
+    return BundleOut(
+        id=bundle.id,
+        title=bundle.title,
+        amount=bundle.amount,
+        currency=bundle.currency,
+        source_url=bundle.source_url,
+        source_domain=bundle.source_domain,
+        notes=bundle.notes,
+        created_at=bundle.created_at.isoformat() if bundle.created_at else None,
+        updated_at=bundle.updated_at.isoformat() if bundle.updated_at else None,
+        product_ids=_bundle_product_ids(session, bundle.id),
+    )
+
+
+def _product_bundle_count(session: Session, product_id: int) -> int:
+    return len(session.exec(select(BundleProductLink).where(BundleProductLink.product_id == product_id)).all())
+
+
+def _product_bundles(session: Session, product_id: int) -> List[BundleOut]:
+    bundle_ids = [link.bundle_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == product_id)).all()]
+    if not bundle_ids:
+        return []
+    bundles = session.exec(select(Bundle).where(Bundle.id.in_(bundle_ids)).order_by(Bundle.created_at.desc())).all()
+    return [_serialize_bundle(session, bundle) for bundle in bundles]
+
+
 def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
     images = session.exec(select(Image).where(Image.product_id == product.id)).all()
     prices = session.exec(select(Price).where(Price.product_id == product.id).order_by(Price.added_at.desc())).all()
@@ -248,6 +308,7 @@ def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
         source_urls_count=len(source_urls),
         source_links_count=len(source_urls),
         tags_count=len(tags),
+        bundles_count=_product_bundle_count(session, product.id),
         cover_image_url=_to_media_url(cover.filename) if cover else None,
         latest_price=latest_price.amount if latest_price else None,
         latest_currency=latest_price.currency if latest_price else None,
@@ -302,6 +363,7 @@ def _serialize_detail(product: Product, session: Session) -> ProductDetailOut:
             for source in source_urls
         ],
         tags=[_serialize_tag(tag) for tag in session.exec(select(Tag).join(ProductTagLink, ProductTagLink.tag_id == Tag.id).where(ProductTagLink.product_id == product.id)).all()],
+        bundles=_product_bundles(session, product.id),
     )
 
 @app.on_event("startup")
@@ -416,6 +478,115 @@ def delete_product(product_id: int):
         session.exec(delete(Product).where(Product.id == product_id))
         session.commit()
         return
+
+
+@app.post("/api/products/merge", response_model=ProductDetailOut)
+def merge_products(payload: ProductMergeIn):
+    if payload.source_product_id == payload.target_product_id:
+        raise HTTPException(status_code=400, detail="Source and target products must be different")
+
+    with Session(engine) as session:
+        source = session.get(Product, payload.source_product_id)
+        target = session.get(Product, payload.target_product_id)
+        if not source or not target:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # fill missing fields on target from source before moving relations
+        for field_name in ("title", "description", "brand", "origin_type", "product_metadata", "category_id"):
+            target_value = getattr(target, field_name, None)
+            source_value = getattr(source, field_name, None)
+            if (target_value is None or target_value == "") and source_value not in (None, ""):
+                setattr(target, field_name, source_value)
+
+        if not target.scraped_at and source.scraped_at:
+            target.scraped_at = source.scraped_at
+
+        # transfer all relations from source to target
+        session.exec(
+            select(Image).where(Image.product_id == source.id)
+        )
+        for image in session.exec(select(Image).where(Image.product_id == source.id)).all():
+            image.product_id = target.id
+
+        for price in session.exec(select(Price).where(Price.product_id == source.id)).all():
+            price.product_id = target.id
+
+        for source_url in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all():
+            source_url.product_id = target.id
+
+        source_tag_ids = [link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all()]
+        target_tag_ids = {link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == target.id)).all()}
+        for tag_id in source_tag_ids:
+            if tag_id not in target_tag_ids:
+                session.add(ProductTagLink(product_id=target.id, tag_id=tag_id))
+
+        session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id))
+        for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all():
+            session.delete(link)
+
+        session.delete(source)
+        target.updated_at = source.updated_at if source.updated_at and source.updated_at > target.updated_at else target.updated_at
+        session.add(target)
+        session.commit()
+        session.refresh(target)
+        return _serialize_detail(target, session)
+
+
+@app.get("/api/bundles", response_model=List[BundleOut])
+def list_bundles():
+    with Session(engine) as session:
+        bundles = session.exec(select(Bundle).order_by(Bundle.created_at.desc())).all()
+        return [_serialize_bundle(session, bundle) for bundle in bundles]
+
+
+@app.get("/api/products/{product_id}/bundles", response_model=List[BundleOut])
+def get_product_bundles(product_id: int):
+    with Session(engine) as session:
+        product = session.get(Product, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return _product_bundles(session, product_id)
+
+
+@app.post("/api/bundles", response_model=BundleOut, status_code=201)
+def create_bundle(payload: BundleCreateIn):
+    if len(dict.fromkeys(payload.product_ids)) < 2:
+        raise HTTPException(status_code=400, detail="A bundle needs at least two products")
+
+    with Session(engine) as session:
+        products = [session.get(Product, pid) for pid in dict.fromkeys(payload.product_ids)]
+        if any(product is None for product in products):
+            raise HTTPException(status_code=404, detail="One or more products not found")
+
+        bundle_title = payload.title.strip() if payload.title and payload.title.strip() else None
+        if not bundle_title:
+            product_titles = [product.title for product in products if product]
+            bundle_title = " + ".join(product_titles[:3])
+            if len(product_titles) > 3:
+                bundle_title += "…"
+
+        source_domain = None
+        parsed = urlparse(payload.source_url if payload.source_url.startswith("http") else f"https://{payload.source_url}")
+        source_domain = parsed.hostname or parsed.netloc or None
+
+        bundle = Bundle(
+            title=bundle_title,
+            amount=payload.amount,
+            currency=payload.currency,
+            source_url=payload.source_url,
+            source_domain=source_domain,
+            notes=payload.notes,
+        )
+        session.add(bundle)
+        session.commit()
+        session.refresh(bundle)
+
+        for pid in dict.fromkeys(payload.product_ids):
+            session.add(BundleProductLink(bundle_id=bundle.id, product_id=pid))
+
+        session.commit()
+        session.refresh(bundle)
+        return _serialize_bundle(session, bundle)
 
 # Endpoint per immagini, prezzi, source_urls, categorie possono essere aggiunti in modo simile
 # Esempio: GET prezzi di un prodotto

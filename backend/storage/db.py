@@ -51,6 +51,11 @@ class ProductTagLink(SQLModel, table=True):
     tag_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True))
 
 
+class BundleProductLink(SQLModel, table=True):
+    bundle_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("bundle.id", ondelete="CASCADE"), primary_key=True))
+    product_id: Optional[int] = Field(default=None, sa_column=Column(ForeignKey("product.id", ondelete="CASCADE"), primary_key=True))
+
+
 class Tag(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -80,6 +85,19 @@ class Product(SQLModel, table=True):
     prices: List["Price"] = Relationship(back_populates="product")
     source_urls: List["SourceUrl"] = Relationship(back_populates="product")
     tags: List[Tag] = Relationship(back_populates="products", link_model=ProductTagLink)
+
+
+class Bundle(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    amount: float
+    currency: str = Field(default="EUR")
+    source_url: str
+    source_domain: Optional[str] = None
+    bundle_metadata: Optional[str] = None  # JSON string
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Image(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
