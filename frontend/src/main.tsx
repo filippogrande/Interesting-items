@@ -183,6 +183,7 @@ function App() {
   );
   const [selectedSourceSite, setSelectedSourceSite] = useState<string>("");
   const [excludeTagIds, setExcludeTagIds] = useState<number[]>([]);
+  const [excludeTagsExpanded, setExcludeTagsExpanded] = useState(false);
   const [view, setView] = useState<"dashboard" | "tags" | "sources">(
     "dashboard",
   );
@@ -196,6 +197,12 @@ function App() {
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+
+  function moveViewer(delta: number) {
+    const imageCount = selected?.images.length || 0;
+    if (imageCount <= 0) return;
+    setViewerIndex((index) => (index + delta + imageCount) % imageCount);
+  }
 
   function appendEditablePair() {
     if (editing && draft) {
@@ -344,8 +351,8 @@ function App() {
     if (!viewerOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setViewerOpen(false);
-      if (e.key === "ArrowLeft") setViewerIndex((i) => Math.max(0, i - 1));
-      if (e.key === "ArrowRight") setViewerIndex((i) => Math.min((selected?.images.length || 1) - 1, i + 1));
+      if (e.key === "ArrowLeft") moveViewer(-1);
+      if (e.key === "ArrowRight") moveViewer(1);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -735,12 +742,12 @@ function App() {
                 <div
                   style={{
                     marginTop: 4,
-                    padding: 12,
+                    padding: excludeTagsExpanded ? 12 : "10px 12px",
                     borderRadius: 16,
                     border: "1px solid rgba(255,255,255,0.08)",
                     background: "rgba(255,255,255,0.03)",
                     display: "grid",
-                    gap: 10,
+                    gap: excludeTagsExpanded ? 10 : 0,
                   }}
                 >
                   <div
@@ -749,95 +756,120 @@ function App() {
                       alignItems: "center",
                       justifyContent: "space-between",
                       gap: 8,
+                      cursor: "pointer",
                     }}
+                    onClick={() => setExcludeTagsExpanded((current) => !current)}
                   >
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase" }}>
-                        Escludi tag
-                      </div>
-                      <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                        Seleziona uno o più tag da togliere dai risultati.
-                      </div>
-                    </div>
-                    <button
-                      className="button secondary"
-                      onClick={clearExcludeTags}
-                      disabled={excludeTagIds.length === 0}
-                      style={{ padding: "8px 12px" }}
-                    >
-                      Azzera
-                    </button>
-                  </div>
-
-                  {excludeTagIds.length > 0 && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {excludeTagIds.map((tagId) => {
-                        const tag = tagMap.get(tagId);
-                        if (!tag) return null;
-                        return (
-                          <div key={`exclude-chip-${tagId}`} className="tag-pill">
-                            <span style={{ fontSize: 14, fontWeight: 500 }}>{tag.name}</span>
-                            <button
-                              className="button tiny danger"
-                              onClick={() => toggleExcludeTag(tagId)}
-                              style={{ padding: "0px 6px", fontSize: 12 }}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {TAG_KIND_ORDER.map((kind) => {
-                      const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
-                      if (group.length === 0) return null;
-                      return (
-                        <div key={`exclude-${kind}`} style={{ display: "grid", gap: 6 }}>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 700,
-                              textTransform: "uppercase",
-                              color: "#4a5568",
-                            }}
-                          >
-                            {TAG_KIND_LABELS[kind]}
-                          </div>
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-                              gap: 8,
-                            }}
-                          >
-                            {group.map((tag) => {
-                              const isSelected = excludeTagIds.includes(tag.id);
-                              return (
-                                <label
-                                  key={`exclude-tag-${tag.id}`}
-                                  className={`tag-option ${isSelected ? "selected" : ""}`}
-                                  style={{ cursor: "pointer" }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleExcludeTag(tag.id)}
-                                    style={{ marginTop: 2 }}
-                                  />
-                                  <div style={{ fontSize: 13, lineHeight: 1.3 }}>
-                                    <div style={{ fontWeight: 600 }}>{tag.name}</div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase" }}>
+                          Escludi tag
                         </div>
-                      );
-                    })}
+                        {excludeTagIds.length > 0 && (
+                          <span className="badge muted" style={{ padding: "4px 10px", fontSize: 11 }}>
+                            {excludeTagIds.length}
+                          </span>
+                        )}
+                      </div>
+                      {excludeTagsExpanded && (
+                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                          Seleziona uno o più tag da togliere dai risultati.
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {excludeTagsExpanded && (
+                        <button
+                          className="button secondary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            clearExcludeTags();
+                          }}
+                          disabled={excludeTagIds.length === 0}
+                          style={{ padding: "8px 12px" }}
+                        >
+                          Azzera
+                        </button>
+                      )}
+                      <span style={{ color: "#94a3b8", fontSize: 14 }}>
+                        {excludeTagsExpanded ? "▴" : "▾"}
+                      </span>
+                    </div>
                   </div>
+
+                  {excludeTagsExpanded && (
+                    <>
+                      {excludeTagIds.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {excludeTagIds.map((tagId) => {
+                            const tag = tagMap.get(tagId);
+                            if (!tag) return null;
+                            return (
+                              <div key={`exclude-chip-${tagId}`} className="tag-pill">
+                                <span style={{ fontSize: 14, fontWeight: 500 }}>{tag.name}</span>
+                                <button
+                                  className="button tiny danger"
+                                  onClick={() => toggleExcludeTag(tagId)}
+                                  style={{ padding: "0px 6px", fontSize: 12 }}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {TAG_KIND_ORDER.map((kind) => {
+                          const group = tagsByKind[kind].slice().sort((a, b) => a.name.localeCompare(b.name));
+                          if (group.length === 0) return null;
+                          return (
+                            <div key={`exclude-${kind}`} style={{ display: "grid", gap: 6 }}>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  textTransform: "uppercase",
+                                  color: "#4a5568",
+                                }}
+                              >
+                                {TAG_KIND_LABELS[kind]}
+                              </div>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                                  gap: 8,
+                                }}
+                              >
+                                {group.map((tag) => {
+                                  const isSelected = excludeTagIds.includes(tag.id);
+                                  return (
+                                    <label
+                                      key={`exclude-tag-${tag.id}`}
+                                      className={`tag-option ${isSelected ? "selected" : ""}`}
+                                      style={{ cursor: "pointer" }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => toggleExcludeTag(tag.id)}
+                                        style={{ marginTop: 2 }}
+                                      />
+                                      <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+                                        <div style={{ fontWeight: 600 }}>{tag.name}</div>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1669,8 +1701,7 @@ function App() {
             <div className="lightbox-nav">
               <button
                 className="button"
-                onClick={() => setViewerIndex((i) => Math.max(0, i - 1))}
-                disabled={viewerIndex <= 0}
+                onClick={() => moveViewer(-1)}
               >
                 ‹
               </button>
@@ -1680,8 +1711,7 @@ function App() {
               />
               <button
                 className="button"
-                onClick={() => setViewerIndex((i) => Math.min(selected.images.length - 1, i + 1))}
-                disabled={viewerIndex >= selected.images.length - 1}
+                onClick={() => moveViewer(1)}
               >
                 ›
               </button>
