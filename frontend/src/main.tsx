@@ -532,6 +532,7 @@ function App() {
     price: { id: number; amount: number; currency: string },
     idx: number,
   ) {
+    if (!selected) return;
     try {
       const source =
         (selected.source_urls[idx] ?? selected.source_urls[0]) || null;
@@ -1507,7 +1508,7 @@ function App() {
             </div>
           </section>
         ) : view === "tags" ? (
-              <>
+          <section className="panel list-panel">
             {error && <div className="error-box">{error}</div>}
 
             <div style={{ marginBottom: 16 }}>
@@ -2015,8 +2016,6 @@ function App() {
                 Salva merge
               </button>
             </div>
-              </>
-            )}
           </section>
         ) : view === "tags" ? (
           <section className="panel list-panel">
@@ -2157,7 +2156,6 @@ function App() {
                 </button>
               ))}
             </div>
-            }
           </section>
         ) : (
           <section className="panel list-panel">
@@ -3656,7 +3654,7 @@ function App() {
                 ‹
               </button>
               <img
-                src={selected.images[viewerIndex]?.url}
+                src={selected.images[viewerIndex]?.url ?? undefined}
                 alt={selected.title}
               />
               <button className="button" onClick={() => moveViewer(1)}>
