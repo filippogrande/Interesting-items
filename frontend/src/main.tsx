@@ -214,6 +214,9 @@ function App() {
   const [mergeCandidateDetail, setMergeCandidateDetail] =
     useState<ProductDetail | null>(null);
   const [mergeCandidateLoading, setMergeCandidateLoading] = useState(false);
+  const [mergePhase, setMergePhase] = useState<"chooser" | "editor">(
+    "chooser",
+  );
   const [mergeDraft, setMergeDraft] = useState({
     title: "",
     description: "",
@@ -554,6 +557,43 @@ function App() {
     }
   }
 
+  function openMergeEditor() {
+    if (!selected || !mergeCandidateDetail) {
+      setError("Seleziona il prodotto principale e quello da mergiare");
+      return;
+    }
+    setMergeDraft(buildMergeDraft(selected));
+    setMergePhase("editor");
+  }
+
+  async function duplicateSelectedProduct() {
+    if (!selected) return;
+    try {
+      const resp = await fetch(`/api/products/${selected.id}/duplicate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const duplicated = (await resp.json()) as ProductDetail;
+      await loadProducts(
+        selectedTagId as number | "" | "untagged",
+        selectedSourceSite,
+        excludeTagIds,
+        true,
+      );
+      await loadDetail(duplicated.id);
+      setView("dashboard");
+      setEditing(false);
+      setDraft(null);
+      setDraftPendingUploads([]);
+      setDraftDeletedImageIds([]);
+      setMergePhase("chooser");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore duplicazione prodotto");
+    }
+  }
+
   async function commitMerge() {
     if (!selected || !mergeCandidateDetail) {
       setError("Seleziona un prodotto principale e uno da mergiare");
@@ -587,6 +627,7 @@ function App() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const merged = await resp.json();
       setMergeCandidateDetail(null);
+      setMergePhase("chooser");
       setMergeSelectedImageIds([]);
       setMergeSelectedPriceIds([]);
       setMergeSelectedSourceUrlIds([]);
@@ -909,6 +950,7 @@ function App() {
           value="↔"
           onClick={() => {
             resetFilters();
+            setMergePhase("chooser");
             setView("merge");
             if (selected) {
               setMergeDraft(buildMergeDraft(selected));
@@ -960,6 +1002,512 @@ function App() {
               </div>
             </div>
 
+            {error && <div className="error-box">{error}</div>}
+
+            <div style={{ marginBottom: 16 }}>
+              <input
+                className="search"
+                placeholder="Cerca prodotti da confrontare"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 18,
+              }}
+            >
+              <div className="panel" style={{ minHeight: 0 }}>
+                <div className="panel-header">
+                  <h3>Main</h3>
+                  <span className="muted">Prodotto da mantenere</span>
+                </div>
+                <div className="product-list" style={{ marginBottom: 14 }}>
+                  {filteredProducts.map((product) => (
+                    <button
+                      key={`merge-main-${product.id}`}
+                      className={`product-card ${selected?.id === product.id ? "active" : ""}`}
+                      onClick={() => void loadDetail(product.id)}
+                    >
+                      <div className="product-card-media">
+                        {product.cover_image_url ? (
+                          <img
+                            src={product.cover_image_url}
+                            alt={product.title}
+                          />
+                        ) : (
+                          <div className="placeholder">No image</div>
+                        )}
+                      </div>
+                      <div className="product-card-body">
+                        <div className="product-card-topline">
+                          <span>{product.origin_type || "unknown"}</span>
+                          <span>
+                            {formatDate(
+                              product.scraped_at || product.created_at,
+                            )}
+                          </span>
+                        </div>
+                        <h3>{product.title}</h3>
+                        <p>{product.description}</p>
+                        <div className="product-card-meta">
+                          <span>{product.images_count} img</span>
+                          <span>{product.prices_count} prezzi</span>
+                          <span>{product.bundles_count || 0} bundle</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {selected ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>
+                        #{selected.id} - {selected.title}
+                      </strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{selected.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>
+                        {selected.images.length} / {selected.prices.length}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    Seleziona il prodotto principale.
+                  </div>
+                )}
+              </div>
+
+              <div className="panel" style={{ minHeight: 0 }}>
+                <div className="panel-header">
+                  <h3>Da mergiare</h3>
+                  <span className="muted">Prodotto che verrà eliminato</span>
+                </div>
+                <div className="product-list" style={{ marginBottom: 14 }}>
+                  {filteredProducts
+                    .filter((product) => product.id !== selected?.id)
+                    .map((product) => (
+                      <button
+                        key={`merge-source-${product.id}`}
+                        className={`product-card ${mergeCandidateDetail?.id === product.id ? "active" : ""}`}
+                        onClick={() => void loadMergeCandidate(product.id)}
+                      >
+                        <div className="product-card-media">
+                          {product.cover_image_url ? (
+                            <img
+                              src={product.cover_image_url}
+                              alt={product.title}
+                            />
+                          ) : (
+                            <div className="placeholder">No image</div>
+                          )}
+                        </div>
+                        <div className="product-card-body">
+                          <div className="product-card-topline">
+                            <span>{product.origin_type || "unknown"}</span>
+                            <span>
+                              {formatDate(
+                                product.scraped_at || product.created_at,
+                              )}
+                            </span>
+                          </div>
+                          <h3>{product.title}</h3>
+                          <p>{product.description}</p>
+                          <div className="product-card-meta">
+                            <span>{product.images_count} img</span>
+                            <span>{product.prices_count} prezzi</span>
+                            <span>{product.bundles_count || 0} bundle</span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+                {mergeCandidateDetail ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>
+                        #{mergeCandidateDetail.id} - {mergeCandidateDetail.title}
+                      </strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{mergeCandidateDetail.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>
+                        {mergeCandidateDetail.images.length} / {mergeCandidateDetail.prices.length}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    Seleziona il prodotto da mergiare.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
+              <div className="editing-panel">
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>
+                  Campi da salvare sul prodotto principale
+                </h4>
+                <div style={{ display: "grid", gap: 12 }}>
+                  {(
+                    [
+                      ["title", "Titolo"],
+                      ["description", "Descrizione"],
+                      ["brand", "Brand"],
+                      ["origin_type", "Origine"],
+                    ] as Array<[keyof typeof mergeDraft, string]>
+                  ).map(([field, label]) => (
+                    <div
+                      key={field as string}
+                      style={{ display: "grid", gap: 6 }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span
+                          style={{
+                            minWidth: 110,
+                            color: "#94a3b8",
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {label}
+                        </span>
+                        <button
+                          className="button tiny"
+                          onClick={() =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: selected
+                                ? (selected as any)[field] || ""
+                                : "",
+                            }))
+                          }
+                        >
+                          Sinistra
+                        </button>
+                        <button
+                          className="button tiny"
+                          onClick={() =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: mergeCandidateDetail
+                                ? (mergeCandidateDetail as any)[field] || ""
+                                : "",
+                            }))
+                          }
+                        >
+                          Destra
+                        </button>
+                      </div>
+                      {field === "description" ? (
+                        <textarea
+                          className="textarea"
+                          value={mergeDraft.description}
+                          onChange={(e) =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              description: e.target.value,
+                            }))
+                          }
+                        />
+                      ) : (
+                        <input
+                          className="input"
+                          value={(mergeDraft as any)[field]}
+                          onChange={(e) =>
+                            setMergeDraft((current) => ({
+                              ...current,
+                              [field]: e.target.value,
+                            }))
+                          }
+                        />
+                      )}
+                    </div>
+                  ))}
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        style={{
+                          minWidth: 110,
+                          color: "#94a3b8",
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                        }}
+                      >
+                        Archiviato
+                      </span>
+                      <button
+                        className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`}
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: !current.archived,
+                          }))
+                        }
+                      >
+                        {mergeDraft.archived ? "Sì" : "No"}
+                      </button>
+                      <button
+                        className="button tiny"
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: selected?.archived ?? false,
+                          }))
+                        }
+                      >
+                        Sinistra
+                      </button>
+                      <button
+                        className="button tiny"
+                        onClick={() =>
+                          setMergeDraft((current) => ({
+                            ...current,
+                            archived: mergeCandidateDetail?.archived ?? false,
+                          }))
+                        }
+                      >
+                        Destra
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="editing-panel">
+                <h4 style={{ marginTop: 0, marginBottom: 12 }}>
+                  Immagini, prezzi e link da importare dalla destra
+                </h4>
+                {mergeCandidateDetail ? (
+                  <div style={{ display: "grid", gap: 14 }}>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Immagini
+                      </div>
+                      <div className="gallery" style={{ margin: 0 }}>
+                        {mergeCandidateDetail.images.map((image) => {
+                          const checked = mergeSelectedImageIds.includes(
+                            image.id,
+                          );
+                          return (
+                            <label
+                              key={`merge-image-${image.id}`}
+                              className="gallery-item"
+                              style={{
+                                position: "relative",
+                                display: "block",
+                                cursor: "pointer",
+                                border: checked
+                                  ? "2px solid rgba(96,165,250,0.9)"
+                                  : undefined,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedImageIds((current) =>
+                                    current.includes(image.id)
+                                      ? current.filter((id) => id !== image.id)
+                                      : [...current, image.id],
+                                  )
+                                }
+                                style={{
+                                  position: "absolute",
+                                  top: 8,
+                                  left: 8,
+                                  zIndex: 2,
+                                }}
+                              />
+                              {image.url ? (
+                                <img
+                                  src={image.url}
+                                  alt={mergeCandidateDetail.title}
+                                />
+                              ) : (
+                                <div className="placeholder">No image</div>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Prezzi
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {mergeCandidateDetail.prices.map((price) => {
+                          const checked = mergeSelectedPriceIds.includes(
+                            price.id,
+                          );
+                          const relatedSource =
+                            mergeCandidateDetail.source_urls[0] || null;
+                          return (
+                            <label
+                              key={`merge-price-${price.id}`}
+                              className={`tag-option ${checked ? "selected" : ""}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedPriceIds((current) =>
+                                    current.includes(price.id)
+                                      ? current.filter((id) => id !== price.id)
+                                      : [...current, price.id],
+                                  )
+                                }
+                                style={{ marginTop: 2 }}
+                              />
+                              <div style={{ display: "grid", gap: 4 }}>
+                                <strong>
+                                  {formatMoney(price.amount, price.currency)}
+                                </strong>
+                                <span>
+                                  {derivePlatformLabel(price, relatedSource)}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          textTransform: "uppercase",
+                          color: "#94a3b8",
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Link
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {mergeCandidateDetail.source_urls.map((source) => {
+                          const checked = mergeSelectedSourceUrlIds.includes(
+                            source.id,
+                          );
+                          return (
+                            <label
+                              key={`merge-source-${source.id}`}
+                              className={`tag-option ${checked ? "selected" : ""}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setMergeSelectedSourceUrlIds((current) =>
+                                    current.includes(source.id)
+                                      ? current.filter((id) => id !== source.id)
+                                      : [...current, source.id],
+                                  )
+                                }
+                                style={{ marginTop: 2 }}
+                              />
+                              <div style={{ display: "grid", gap: 4 }}>
+                                <a
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {derivePlatformLabel(undefined, source)}
+                                </a>
+                                <small>{source.url}</small>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    Seleziona il prodotto di destra per importare immagini,
+                    prezzi e link.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 18,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                className="button secondary"
+                onClick={() => setView("dashboard")}
+              >
+                Annulla
+              </button>
+              <button
+                className="button primary"
+                onClick={() => void commitMerge()}
+                disabled={!selected || !mergeCandidateDetail}
+              >
+                Salva merge
+              </button>
+            </div>
+          </section>
+        ) : view === "tags" ? (
+              <>
             {error && <div className="error-box">{error}</div>}
 
             <div style={{ marginBottom: 16 }}>
@@ -1467,6 +2015,8 @@ function App() {
                 Salva merge
               </button>
             </div>
+              </>
+            )}
           </section>
         ) : view === "tags" ? (
           <section className="panel list-panel">
@@ -1607,6 +2157,7 @@ function App() {
                 </button>
               ))}
             </div>
+            }
           </section>
         ) : (
           <section className="panel list-panel">
@@ -1902,6 +2453,12 @@ function App() {
             {loadingDetail && <span className="muted">Aggiornamento...</span>}
             {selected && !editing && (
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  className="button secondary"
+                  onClick={() => void duplicateSelectedProduct()}
+                >
+                  Duplica
+                </button>
                 <button
                   className="button"
                   onClick={() => {

@@ -109,6 +109,11 @@ class ProductMergeIn(BaseModel):
     selected_source_url_ids: List[int] = []
 
 
+class ProductDuplicateIn(BaseModel):
+    title: Optional[str] = None
+    archived: Optional[bool] = None
+
+
 class BundleCreateIn(BaseModel):
     title: Optional[str] = None
     amount: float
@@ -455,6 +460,69 @@ def create_product(product: Product):
         session.commit()
         session.refresh(product)
         return product
+
+
+@app.post("/api/products/{product_id}/duplicate", response_model=ProductDetailOut, status_code=201)
+def duplicate_product(product_id: int, payload: Optional[ProductDuplicateIn] = None):
+    with Session(engine) as session:
+        source = session.get(Product, product_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        new_product = Product(
+            title=(payload.title.strip() if payload and payload.title and payload.title.strip() else f"{source.title} (copia)"),
+            description=source.description,
+            brand=source.brand,
+            origin_type=source.origin_type,
+            product_metadata=source.product_metadata,
+            category_id=source.category_id,
+            archived=payload.archived if payload and payload.archived is not None else source.archived,
+            scraped_at=source.scraped_at,
+        )
+        session.add(new_product)
+        session.commit()
+        session.refresh(new_product)
+
+        for image in session.exec(select(Image).where(Image.product_id == source.id)).all():
+            session.add(
+                Image(
+                    product_id=new_product.id,
+                    filename=image.filename,
+                    width=image.width,
+                    height=image.height,
+                    size_bytes=image.size_bytes,
+                    checksum=image.checksum,
+                )
+            )
+
+        for price in session.exec(select(Price).where(Price.product_id == source.id)).all():
+            session.add(
+                Price(
+                    product_id=new_product.id,
+                    amount=price.amount,
+                    currency=price.currency,
+                    price_category=price.price_category,
+                    condition=price.condition,
+                    platform=price.platform,
+                    sold=price.sold,
+                )
+            )
+
+        for source_url in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all():
+            session.add(
+                SourceUrl(
+                    product_id=new_product.id,
+                    url=source_url.url,
+                    domain=source_url.domain,
+                )
+            )
+
+        for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all():
+            session.add(ProductTagLink(product_id=new_product.id, tag_id=link.tag_id))
+
+        session.commit()
+        session.refresh(new_product)
+        return _serialize_detail(new_product, session)
 
 @app.patch("/api/products/{product_id}", response_model=Product)
 def update_product(product_id: int, product_data: Product):
