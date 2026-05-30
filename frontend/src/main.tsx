@@ -758,10 +758,32 @@ function App() {
       setTags(fresh);
       setNewTagName("");
       setNewTagParentId("");
-      setEditingTagIds([...editingTagIds, created.id]);
+      // compute ancestors from freshly loaded tags so parents are pinned when creating a tag
+      const freshMap = new Map<number, Tag>(fresh.map((t) => [t.id, t]));
+      const ancestors: number[] = [];
+      let cur = freshMap.get(created.id);
+      while (cur && cur.parent_id) {
+        const pid = cur.parent_id;
+        if (!pid) break;
+        ancestors.unshift(pid);
+        cur = freshMap.get(pid);
+      }
+      setEditingTagIds((prev) =>
+        Array.from(new Set([...prev, ...ancestors, created.id])),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore creazione tag");
     }
+  }
+
+  function resetFilters() {
+    setQuery("");
+    setSelectedTagId("");
+    setSelectedSourceSite("");
+    setExcludeTagIds([]);
+    setExcludeTagsExpanded(false);
+    setSelected(null);
+    setDraft(null);
   }
 
   const tagMap = useMemo(
@@ -857,15 +879,36 @@ function App() {
           label="Prodotti"
           value={stats.products}
           onClick={() => {
+            // clear all filters and show full dashboard
+            resetFilters();
             setView("dashboard");
+            // load all products without auto-selecting a detail
+            void loadProducts("", "", [], true);
           }}
         />
-        <StatCard label="Immagini" value={stats.images} />
-        <StatCard label="Prezzi" value={stats.prices} />
+        <StatCard
+          label="Immagini"
+          value={stats.images}
+          onClick={() => {
+            resetFilters();
+            setView("dashboard");
+            void loadProducts("", "", [], true);
+          }}
+        />
+        <StatCard
+          label="Prezzi"
+          value={stats.prices}
+          onClick={() => {
+            resetFilters();
+            setView("dashboard");
+            void loadProducts("", "", [], true);
+          }}
+        />
         <StatCard
           label="Unisci i prodotti"
           value="↔"
           onClick={() => {
+            resetFilters();
             setView("merge");
             if (selected) {
               setMergeDraft(buildMergeDraft(selected));
@@ -876,6 +919,7 @@ function App() {
           label="Source websites"
           value={stats.sources}
           onClick={() => {
+            resetFilters();
             setView("sources");
             void loadSourceWebsitesStats();
           }}
@@ -884,6 +928,7 @@ function App() {
           label="Tag"
           value={stats.tags}
           onClick={() => {
+            resetFilters();
             setView("tags");
             void loadTagsStats();
           }}
@@ -2732,33 +2777,22 @@ function App() {
                                 </div>
                                 <small>{formatDate(price.added_at)}</small>
                               </div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: 8,
-                                  alignItems: "center",
-                                }}
-                              >
+                              <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
                                 {selected.source_urls[idx] && (
-                                  <a
-                                    href={selected.source_urls[idx].url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {derivePlatformLabel(
-                                      undefined,
-                                      selected.source_urls[idx],
-                                    )}
-                                  </a>
+                                  <div>
+                                    <a href={selected.source_urls[idx].url} target="_blank" rel="noreferrer">
+                                      {derivePlatformLabel(undefined, selected.source_urls[idx])}
+                                    </a>
+                                    <div>
+                                      <small>{formatDate(selected.source_urls[idx].added_at)}</small>
+                                    </div>
+                                  </div>
                                 )}
-                                <button
-                                  className="button tiny"
-                                  onClick={() =>
-                                    void createBundleFromPrice(price, idx)
-                                  }
-                                >
-                                  Trasforma in bundle
-                                </button>
+                                <div>
+                                  <button className="button tiny" onClick={() => void createBundleFromPrice(price, idx)}>
+                                    Trasforma in bundle
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </li>

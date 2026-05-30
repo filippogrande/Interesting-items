@@ -159,7 +159,10 @@ a {
 
 .detail-panel {
   align-self: start;
-  position: static;
+  position: sticky;
+  top: 32px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
 }
 
 .panel-header {
