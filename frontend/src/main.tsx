@@ -891,6 +891,7 @@ function App() {
     }),
     [products, tags, sourceWebsitesStats],
   );
+  const useLegacyTagsBrowser = false;
   const isTagsView = view === "tags";
 
   return (
@@ -1508,7 +1509,7 @@ function App() {
               </button>
             </div>
           </section>
-        ) : isTagsView ? (
+        ) : useLegacyTagsBrowser ? (
           <section className="panel list-panel">
             {error && <div className="error-box">{error}</div>}
 
