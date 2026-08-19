@@ -1,4 +1,5 @@
 import React from "react";
+import ProductCard from "./ProductCard";
 
 export default function ProductList(props: any) {
   const {
@@ -173,25 +174,13 @@ export default function ProductList(props: any) {
 
       <div className="product-list">
         {filteredProducts.map((product: any) => (
-          <button key={product.id} className={`product-card ${selected?.id === product.id ? "active" : ""}`} onClick={() => void loadDetail(product.id)}>
-            <div className="product-card-media">
-              {product.cover_image_url ? <img src={product.cover_image_url} alt={product.title} /> : <div className="placeholder">No image</div>}
-            </div>
-            <div className="product-card-body">
-              <div className="product-card-topline">
-                <span>{product.origin_type || "unknown"}</span>
-                <span>{formatDate(product.scraped_at || product.created_at)}</span>
-              </div>
-              <h3>{product.title}</h3>
-              <p>{product.description}</p>
-              <div className="product-card-meta">
-                <span>{product.images_count} img</span>
-                <span>{product.prices_count} prezzi</span>
-                <span>{product.bundles_count || 0} bundle</span>
-                <span>{formatMoney(product.latest_price, product.latest_currency)}</span>
-              </div>
-            </div>
-          </button>
+          <ProductCard
+            key={product.id}
+            product={product}
+            active={selected?.id === product.id}
+            onClick={() => void loadDetail(product.id)}
+            footer={<span>{formatMoney(product.latest_price, product.latest_currency)}</span>}
+          />
         ))}
 
         {!loadingList && filteredProducts.length === 0 && <div className="empty-state">Nessun prodotto trovato.</div>}
