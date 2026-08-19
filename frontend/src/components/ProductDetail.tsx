@@ -120,6 +120,7 @@ export default function ProductDetail(props: any) {
           <div className="detail-hero">
             <div className="detail-title">
               <span className="badge muted">#{selected.id}</span>
+              {selected.unavailable && <span className="badge danger">Non disponibile</span>}
               {editing && draft ? (
                 <div>
                   <input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
@@ -141,6 +142,7 @@ export default function ProductDetail(props: any) {
               <Kpi label="Prezzo" value={formatMoney(selected.latest_price, selected.latest_currency)} />
               <Kpi label="Creato" value={formatDate(selected.created_at)} />
               <Kpi label="Scansionato" value={formatDate(selected.scraped_at)} />
+              {selected.unavailable && <Kpi label="Stato" value="Non disponibile" />}
             </div>
           </div>
 
