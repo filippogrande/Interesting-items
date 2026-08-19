@@ -1024,12 +1024,30 @@ function App() {
                 gap: 18,
               }}
             >
-              <div className="panel" style={{ minHeight: 0 }}>
+              <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
                 <div className="panel-header">
                   <h3>Main</h3>
                   <span className="muted">Prodotto da mantenere</span>
                 </div>
-                <div className="product-list" style={{ marginBottom: 14 }}>
+                {selected ? (
+                  <div style={{ display: "grid", gap: 10, position: "sticky", top: 0, background: "var(--bg, #0f1115)", padding: "10px 0", zIndex: 2, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>#{selected!.id} - {selected!.title}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{selected!.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>{selected!.images.length} / {selected!.prices.length}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state" style={{ position: "sticky", top: 0 }}>Seleziona il prodotto principale.</div>
+                )}
+                <div className="product-list" style={{ marginBottom: 14, maxHeight: "52vh", overflowY: "auto", flex: 1 }}>
                   {filteredProducts.map((product) => (
                     <button
                       key={`merge-main-${product.id}`}
@@ -1092,12 +1110,30 @@ function App() {
                 )}
               </div>
 
-              <div className="panel" style={{ minHeight: 0 }}>
+              <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
                 <div className="panel-header">
                   <h3>Da mergiare</h3>
                   <span className="muted">Prodotto che verrà eliminato</span>
                 </div>
-                <div className="product-list" style={{ marginBottom: 14 }}>
+                {mergeCandidateDetail ? (
+                  <div style={{ display: "grid", gap: 10, position: "sticky", top: 0, background: "var(--bg, #0f1115)", padding: "10px 0", zIndex: 2, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <div className="kpi">
+                      <span>Selezionato</span>
+                      <strong>#{mergeCandidateDetail.id} - {mergeCandidateDetail.title}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Descrizione</span>
+                      <strong>{mergeCandidateDetail.description}</strong>
+                    </div>
+                    <div className="kpi">
+                      <span>Immagini / Prezzi</span>
+                      <strong>{mergeCandidateDetail.images.length} / {mergeCandidateDetail.prices.length}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state" style={{ position: "sticky", top: 0 }}>Seleziona il prodotto da mergiare.</div>
+                )}
+                <div className="product-list" style={{ marginBottom: 14, maxHeight: "52vh", overflowY: "auto", flex: 1 }}>
                   {filteredProducts
                     .filter((product) => product.id !== selected?.id)
                     .map((product) => (
