@@ -12,7 +12,7 @@ export default function ProductDetail(props: any) {
     setDraft,
     setEditingTagIds,
     setDraftPendingUploads,
-    setDraftDeletedImageURLs,
+    setDraftDeletedImageIds,
     loadProducts,
     selectedTagId,
     selectedSourceSite,
