@@ -318,7 +318,7 @@ function App() {
           "/api/dashboard/products/untagged",
         );
       } else {
-        const params = new URLSearchParams({ limit: "100" });
+        const params = new URLSearchParams({ limit: "1000" });
         if (tagId !== undefined && tagId !== "") {
           params.set("tag_id", String(tagId));
         }
