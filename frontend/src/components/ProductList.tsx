@@ -1,5 +1,6 @@
 import React from "react";
 import ProductCard from "./ProductCard";
+import { formatMoney } from "../utils/format";
 
 export default function ProductList(props: any) {
   const {
@@ -21,7 +22,6 @@ export default function ProductList(props: any) {
     tagMap,
     loadDetail,
     formatDate,
-    formatMoney,
     products,
   } = props;
 
