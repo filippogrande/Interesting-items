@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import TagsView from "./components/TagsView";
 import "./styles.css";
+import ProductCard from "./components/ProductCard";
+import MergeView from "./components/MergeView";
 
 type ProductSummary = {
   id: number;
