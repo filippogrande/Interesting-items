@@ -4,9 +4,10 @@ type ProductCardProps = {
   product: any;
   active?: boolean;
   onClick?: () => void;
+  footer?: React.ReactNode;
 };
 
-export default function ProductCard({ product, active, onClick }: ProductCardProps) {
+export default function ProductCard({ product, active, onClick, footer }: ProductCardProps) {
   return (
     <button
       key={product.id}
@@ -33,13 +34,13 @@ export default function ProductCard({ product, active, onClick }: ProductCardPro
           <span>{product.images_count} img</span>
           <span>{product.prices_count} prezzi</span>
           <span>{product.bundles_count || 0} bundle</span>
+          {footer}
         </div>
       </div>
     </button>
   );
 }
 
-// helper condiviso per formattare la data (stessa firma usata in App)
 function formatDate(value?: string | null): string {
   if (!value) return "";
   const d = new Date(value);
