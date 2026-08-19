@@ -180,6 +180,7 @@ export default function ProductList(props: any) {
             <div className="product-card-body">
               <div className="product-card-topline">
                 <span>{product.origin_type || "unknown"}</span>
+                {product.unavailable && <span className="badge danger">Non disponibile</span>}
                 <span>{formatDate(product.scraped_at || product.created_at)}</span>
               </div>
               <h3>{product.title}</h3>
