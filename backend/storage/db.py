@@ -1,4 +1,3 @@
-
 from sqlmodel import SQLModel, Field, create_engine, Session, Relationship, Column, Enum
 from sqlalchemy import ForeignKey
 from typing import Optional, List
@@ -77,6 +76,8 @@ class Product(SQLModel, table=True):
     product_metadata: Optional[str] = None  # JSON string
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     archived: bool = Field(default=False)
+    unavailable: bool = Field(default=False)
+    unavailable_reason: Optional[str] = None
     scraped_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
