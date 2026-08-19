@@ -143,6 +143,8 @@ class ProductSummaryOut(BaseModel):
     brand: Optional[str] = None
     origin_type: Optional[str] = None
     archived: bool = False
+    unavailable: bool = False
+    unavailable_reason: Optional[str] = None
     scraped_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -316,6 +318,8 @@ def _serialize_summary(product: Product, session: Session) -> ProductSummaryOut:
         brand=product.brand,
         origin_type=product.origin_type,
         archived=product.archived,
+        unavailable=product.unavailable if getattr(product, "unavailable", None) is not None else False,
+        unavailable_reason=getattr(product, "unavailable_reason", None),
         scraped_at=product.scraped_at.isoformat() if product.scraped_at else None,
         created_at=product.created_at.isoformat() if product.created_at else None,
         updated_at=product.updated_at.isoformat() if product.updated_at else None,
@@ -385,6 +389,17 @@ def _serialize_detail(product: Product, session: Session) -> ProductDetailOut:
 @app.on_event("startup")
 def on_startup():
     init_db()
+
+@app.get("/api/products/by-source-url")
+def get_product_by_source_url(url: str):
+    with Session(engine) as session:
+        src = session.exec(select(SourceUrl).where(SourceUrl.url == url)).first()
+        if not src:
+            raise HTTPException(status_code=404, detail="Not found")
+        product = session.get(Product, src.product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Not found")
+        return _serialize_detail(product, session)
 
 @app.get("/api/products", response_model=List[Product])
 def list_products(q: Optional[str] = None, limit: int = 20, offset: int = 0):
@@ -639,7 +654,7 @@ def get_product_bundles(product_id: int):
         product = session.get(Product, product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-        return _product_bundles(session, product_id)
+        return _product_bundles(product_id)
 
 
 @app.post("/api/bundles", response_model=BundleOut, status_code=201)
