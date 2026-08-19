@@ -1,5 +1,8 @@
 import React from "react";
 import ProductCard from "./ProductCard";
+import { formatMoney, derivePlatformLabel } from "../utils/format";
+
+const labelStyle = { fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 } as const;
 
 type MergeViewProps = {
   filteredProducts: any[];
@@ -20,8 +23,6 @@ type MergeViewProps = {
   setMergeSelectedPriceIds: (updater: (current: number[]) => number[]) => void;
   mergeSelectedSourceUrlIds: number[];
   setMergeSelectedSourceUrlIds: (updater: (current: number[]) => number[]) => void;
-  derivePlatformLabel: (price?: any, source?: any) => string;
-  formatMoney: (amount?: number | null, currency?: string | null) => string;
   selectedTagId: number | "" | "untagged";
   selectedSourceSite: string;
   excludeTagIds: number[];
@@ -45,7 +46,7 @@ function MergeSelectedSummary({ entity }: { entity: any }) {
 function MergeImportPanel(props: MergeViewProps) {
   const { mergeCandidateDetail, mergeSelectedImageIds, setMergeSelectedImageIds,
     mergeSelectedPriceIds, setMergeSelectedPriceIds, mergeSelectedSourceUrlIds,
-    setMergeSelectedSourceUrlIds, derivePlatformLabel, formatMoney } = props;
+    setMergeSelectedSourceUrlIds } = props;
   if (!mergeCandidateDetail) {
     return <div className="empty-state">Seleziona il prodotto di destra per importare immagini, prezzi e link.</div>;
   }
@@ -97,8 +98,6 @@ function MergeImportPanel(props: MergeViewProps) {
     </div>
   );
 }
-
-const labelStyle = { fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 } as const;
 
 function MergeFieldRow({ field, label, selected, mergeCandidateDetail, mergeDraft, setMergeDraft }: any) {
   return (
