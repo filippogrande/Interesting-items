@@ -46,7 +46,7 @@ def download_rendered_html(url: str, html_path: str):
                 page.wait_for_selector("h1", timeout=15000)
             except Exception:
                 pass
-            page.wait_for_timeout(2500)  # lascia renderizzare banner "Rimosso!" e immagini lazy
+            page.wait_for_timeout(2500)  # lascia renderizzare banner e immagini lazy
             html = page.content()
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(html)
@@ -55,17 +55,6 @@ def download_rendered_html(url: str, html_path: str):
     except Exception as e:
         log_vinted(f'Errore Playwright: {e} - ' + traceback.format_exc())
         return False
-
-
-def _find_existing_product(url: str):
-    """Restituisce l'id prodotto se esiste gia' per questo SourceUrl, altrimenti None."""
-    try:
-        r = requests.get(f"{API_BASE}/api/products/by-source-url?url={quote(url, safe='')}", timeout=10)
-        if r.status_code == 200:
-            return r.json().get("id")
-    except Exception as e:
-        log_vinted(f'Lookup esistente fallito (procedo con create): {e}')
-    return None
 
 
 def _create_product(product_data: dict):
@@ -251,50 +240,11 @@ def scrape_vinted(url: str):
     except Exception as e:
         log_vinted(f'Errore salvataggio XML: {e}')
 
-    # --- Rilevamento annuncio rimosso / non valido ---
-    bad_title = False
-    bad_reason = ''
-    if not title or title.strip() == "":
-        bad_title = True
-        bad_reason = 'missing title'
-    elif re.search(r"\b404\b", title, re.I) or re.search(r"not found|pagina non trovata|non trovato|not available", title, re.I):
-        bad_title = True
-        bad_reason = 'invalid title marker'
-
-    is_removed = False
-    if not bad_title:
-        page_text = soup.get_text(' ', strip=True).lower()
-        removed_markers = [
-            'rimosso!', 'annuncio non disponibile', 'item not found',
-            'this item has been removed', 'non è più disponibile',
-            'non disponibile', 'this page could not be found', 'pagina non trovata',
-        ]
-        weak_page_signals = (not title) or (len(image_links) == 0 and price_val <= 0)
-        if any(m in page_text for m in removed_markers):
-            is_removed = True
-            if title and image_links:
-                # dati recuperabili: salviamo comunque come non disponibile
-                bad_title = False
-                log_vinted('Annuncio rimosso ma dati recuperabili: salvo come non disponibile.')
-            elif weak_page_signals:
-                bad_title = True
-                bad_reason = 'removed page with no extractable data'
-        elif weak_page_signals and any(m in page_text for m in ['this page could not be found', 'pagina non trovata', 'item not found', 'annuncio non disponibile']):
-            bad_title = True
-            bad_reason = 'page text not-found marker with weak extraction signals'
-
-    if bad_title:
-        log_vinted(f'Skipping creation: {bad_reason} (title="{title}")')
-        try:
-            problem_path = f'storage/problem_item_{item_id}.html'
-            with open(problem_path, 'w', encoding='utf-8') as pf:
-                pf.write(html)
-            log_vinted(f'HTML salvato per ispezione: {problem_path}')
-        except Exception as e:
-            log_vinted(f'Errore salvataggio HTML per ispezione: {e}')
+    # Se non abbiamo un titolo la pagina non e' stata renderizzata: errore.
+    if not title:
+        log_vinted('Titolo non trovato: pagina non renderizzata correttamente.')
         return False
 
-    # --- Creazione / aggiornamento (upsert per SourceUrl) ---
     try:
         product_data = {
             "url": url,
@@ -302,57 +252,40 @@ def scrape_vinted(url: str):
             "description": description,
             "brand": None,
             "origin_type": "vinted",
-            "product_metadata": json.dumps({"unavailable": is_removed}) if is_removed else None,
+            "product_metadata": None,
             "category_id": None,
             "archived": False,
-            "unavailable": is_removed,
-            "unavailable_reason": "removed" if is_removed else None,
         }
 
-        existing_id = _find_existing_product(url)
-        was_existing = existing_id is not None
-        if was_existing:
-            log_vinted(f'Prodotto gia' esistente (id={existing_id}): aggiorno invece di duplicare.')
-            upd = {k: v for k, v in product_data.items() if k != 'url'}
-            resp = requests.patch(f"{API_BASE}/api/products/{existing_id}", json=upd, timeout=30)
-            if resp.status_code in (200, 201):
-                product_id = existing_id
-            else:
-                log_vinted(f'PATCH fallito ({resp.status_code}); creo nuovo prodotto.')
-                product_id = _create_product(product_data)
-        else:
-            product_id = _create_product(product_data)
-
+        product_id = _create_product(product_data)
         if product_id is None:
             return False
 
-        if not was_existing:
-            for fname, img_url in zip(image_filenames, image_links):
-                image_data = {
-                    "product_id": product_id,
-                    "filename": os.path.join(images_dir, fname),
-                    "width": None, "height": None,
-                    "size_bytes": None, "checksum": None
-                }
-                img_resp = requests.post(f"{API_BASE}/api/images", json=image_data, timeout=30)
-                if img_resp.status_code != 201:
-                    log_vinted(f'Errore API creazione immagine: {img_resp.status_code} {img_resp.text}')
-
-            price_data = {
-                "product_id": product_id, "amount": price_val, "currency": "EUR",
-                "price_category": None, "condition": None, "platform": None, "sold": False
+        for fname, img_url in zip(image_filenames, image_links):
+            image_data = {
+                "product_id": product_id,
+                "filename": os.path.join(images_dir, fname),
+                "width": None, "height": None,
+                "size_bytes": None, "checksum": None
             }
-            price_resp = requests.post(f"{API_BASE}/api/prices", json=price_data, timeout=30)
-            if price_resp.status_code != 201:
-                log_vinted(f'Errore API creazione prezzo: {price_resp.status_code} {price_resp.text}')
+            img_resp = requests.post(f"{API_BASE}/api/images", json=image_data, timeout=30)
+            if img_resp.status_code != 201:
+                log_vinted(f'Errore API creazione immagine: {img_resp.status_code} {img_resp.text}')
 
-            sourceurl_data = {"product_id": product_id, "url": url, "domain": None}
-            sourceurl_resp = requests.post(f"{API_BASE}/api/sourceurls", json=sourceurl_data, timeout=30)
-            if sourceurl_resp.status_code != 201:
-                log_vinted(f'Errore API creazione sourceurl: {sourceurl_resp.status_code} {sourceurl_resp.text}')
+        price_data = {
+            "product_id": product_id, "amount": price_val, "currency": "EUR",
+            "price_category": None, "condition": None, "platform": None, "sold": False
+        }
+        price_resp = requests.post(f"{API_BASE}/api/prices", json=price_data, timeout=30)
+        if price_resp.status_code != 201:
+            log_vinted(f'Errore API creazione prezzo: {price_resp.status_code} {price_resp.text}')
 
-        status_msg = " (annuncio RIMOSSO -> salvato come non disponibile)" if is_removed else ""
-        log_vinted(f'Dati salvati{status_msg}. Prodotto id={product_id}, immagini={len(image_filenames)}')
+        sourceurl_data = {"product_id": product_id, "url": url, "domain": None}
+        sourceurl_resp = requests.post(f"{API_BASE}/api/sourceurls", json=sourceurl_data, timeout=30)
+        if sourceurl_resp.status_code != 201:
+            log_vinted(f'Errore API creazione sourceurl: {sourceurl_resp.status_code} {sourceurl_resp.text}')
+
+        log_vinted(f'Dati salvati. Prodotto id={product_id}, immagini={len(image_filenames)}')
     except Exception as e:
         log_vinted(f'Errore chiamate API: {e}')
         return False
