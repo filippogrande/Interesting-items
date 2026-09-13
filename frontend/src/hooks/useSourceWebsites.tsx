@@ -10,7 +10,7 @@ export function useSourceWebsites() {
   const loadSourceWebsitesStats = useCallback(async () => {
     try {
       const stats = await fetchJson<{ websites: SourceWebsite[] }>(
-        "/api/dashboard/source_websites/stats",
+        "/api/sourcewebsites/stats",
       );
       setSourceWebsitesStats(stats);
       return stats;
