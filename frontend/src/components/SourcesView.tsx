@@ -32,9 +32,6 @@ export function SourcesView({
           </button>
         </div>
       </div>
-
-      {error && <div className="error-box">{error}</div>}
-
       <div style={{ display: "grid", gap: 8 }}>
         <button className="button" onClick={onSelectAll}>
           Tutti i siti ({totalProducts})
