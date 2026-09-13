@@ -203,10 +203,10 @@ function App() {
         brand: "",
         origin_type: "",
         archived: false,
-        prices: [],
-        source_urls: [],
-        images: [],
-        tags: [],
+        prices: [] as any,
+        source_urls: [] as any,
+        images: [] as any,
+        tags: [] as any,
       });
     } catch (err) {
       setError(
@@ -402,6 +402,39 @@ function App() {
       />
 
       <footer className="app-footer">Versione: {appVersion}</footer>
+
+      {bundleCreatorOpen && selected && (
+        <div className="editing-panel" style={{ marginBottom: 0 }}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <input className="input" placeholder="Titolo bundle (facoltativo)" value={bundleDraft.title} onChange={(e) => setBundleDraft((current) => ({ ...current, title: e.target.value }))} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input className="input" placeholder="Prezzo bundle" value={bundleDraft.amount} onChange={(e) => setBundleDraft((current) => ({ ...current, amount: e.target.value }))} style={{ width: 140 }} />
+              <input className="input" placeholder="EUR" value={bundleDraft.currency} onChange={(e) => setBundleDraft((current) => ({ ...current, currency: e.target.value }))} style={{ width: 100 }} />
+            </div>
+            <input className="input" placeholder="Link bundle" value={bundleDraft.sourceUrl} onChange={(e) => setBundleDraft((current) => ({ ...current, sourceUrl: e.target.value }))} />
+            <textarea className="textarea" placeholder="Note facoltative" value={bundleDraft.notes} onChange={(e) => setBundleDraft((current) => ({ ...current, notes: e.target.value }))} />
+            <div style={{ display: 'grid', gap: 8, maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
+              <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700 }}>Prodotti nel bundle</div>
+              {products.map((product) => {
+                const checked = bundleDraft.productIds.includes(product.id);
+                return (
+                  <label key={`bundle-product-${product.id}`} className={`tag-option ${checked ? 'selected' : ''}`} style={{ cursor: 'pointer' }}>
+                    <input type="checkbox" checked={checked} onChange={() => setBundleDraft((current) => ({ ...current, productIds: checked ? current.productIds.filter((id) => id !== product.id) : Array.from(new Set([...current.productIds, product.id])) }))} style={{ marginTop: 2 }} />
+                    <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+                      <div style={{ fontWeight: 600 }}>#{product.id} - {product.title}</div>
+                      <div style={{ color: '#94a3b8' }}>{product.origin_type || 'unknown'}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="button primary" onClick={() => void createBundle()}>Crea bundle</button>
+              <button className="button secondary" onClick={() => setBundleDraft((current) => ({ ...current, productIds: selected ? [selected.id] : [] }))}>Reset prodotti</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
