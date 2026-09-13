@@ -60,13 +60,12 @@ export function useTags() {
     [],
   );
 
-  const toggleProductTag = useCallback((tagId: number) => {
-    // Note: this returns a state updater function for use with setEditingTagIds
-    // This matches the pattern used by useProductDetail's toggleProductTag
-    return (current: number[]) =>
+  const toggleProductTag = useCallback((tagId: number, editingTagIds: number[], setEditingTagIds: React.Dispatch<React.SetStateAction<number[]>>) => {
+    setEditingTagIds((current) =>
       current.includes(tagId)
         ? current.filter((id) => id !== tagId)
-        : [...current, tagId];
+        : [...current, tagId],
+    );
   }, []);
 
   const tagMap = useMemo(() => {
