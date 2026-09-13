@@ -6,6 +6,7 @@ import ProductCard from "./components/ProductCard";
 import MergeView from "./components/MergeView";
 import { fetchJson, formatDate, formatMoney, labelFromHost, derivePlatformLabel, makeEmptyPrice, makeEmptySourceUrl, buildTagLabel, TAG_KIND_LABELS, TAG_KIND_ORDER } from "./utils/format";
 import type { ProductSummary, Tag, SourceWebsite, ProductDetail } from "./types";
+import CreationModal from "./components/CreationModal"
 
 function App() {
   const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
