@@ -6,6 +6,9 @@ import ProductCard from "./components/ProductCard";
 import MergeView from "./components/MergeView";
 import { fetchJson, formatDate, formatMoney, labelFromHost, derivePlatformLabel, makeEmptyPrice, makeEmptySourceUrl, buildTagLabel, TAG_KIND_LABELS, TAG_KIND_ORDER } from "./utils/format";
 import type { ProductSummary, Tag, SourceWebsite, ProductDetail } from "./types";
+import CreationModal from "./components/CreationModal"
+import { StatCard, Kpi } from "./components/Stats";
+import { SourcesView } from "./components/SourcesView"
 
 function App() {
   const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
@@ -1377,59 +1380,25 @@ function App() {
             onBack={() => setView("dashboard")}
             onRefresh={() => void loadTagsStats()}
           />
-        ) : view === "sources" ? (
-          <section className="panel list-panel">
-            <div className="panel-header">
-              <h2>Source websites</h2>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="button secondary"
-                  onClick={() => {
-                    setView("dashboard");
-                  }}
-                >
-                  Indietro
-                </button>
-                <button
-                  className="button"
-                  onClick={() => {
-                    void loadSourceWebsitesStats();
-                  }}
-                >
-                  Aggiorna
-                </button>
-              </div>
-            </div>
-
-            {error && <div className="error-box">{error}</div>}
-
-            <div style={{ display: "grid", gap: 8 }}>
-              <button
-                className="button"
-                onClick={() => {
-                  setSelectedTagId("");
-                  setSelectedSourceSite("");
-                  setView("dashboard");
-                }}
-              >
-                Tutti i siti ({stats.products})
-              </button>
-
-              {(sourceWebsitesStats?.websites || []).map((site) => (
-                <button
-                  key={site.name}
-                  className="button"
-                  onClick={() => {
-                    setSelectedTagId("");
-                    setSelectedSourceSite(site.name);
-                    setView("dashboard");
-                  }}
-                >
-                  {site.name} ({site.count})
-                </button>
-              ))}
-            </div>
-          </section>
+        {view === "sources" ? (
+  <SourcesView
+    sourceWebsitesStats={sourceWebsitesStats}
+    totalProducts={products.length}
+    error={error}
+    onBack={() => setView("dashboard")}
+    onRefresh={() => void loadSourceWebsitesStats()}
+    onSelectAll={() => {
+      setSelectedTagId("");
+      setSelectedSourceSite("");
+      setView("dashboard");
+    }}
+    onSelectSite={(siteName) => {
+      setSelectedTagId("");
+      setSelectedSourceSite(siteName);
+      setView("dashboard");
+    }}
+  />
+) : view === "tags" ? (
         ) : (
           <section className="panel list-panel">
             <div className="panel-header">
@@ -2948,105 +2917,6 @@ function App() {
         tags={tags}
       />
       <footer className="app-footer">Versione: {appVersion}</footer>
-    </div>
-  );
-}
-
-// render creation modal near root so it overlays whole app
-function CreationModal({
-  open,
-  draft,
-  onClose,
-  onChange,
-  onCreate,
-  tags,
-}: {
-  open: boolean;
-  draft: Partial<ProductDetail>;
-  onClose: () => void;
-  onChange: (patch: Partial<ProductDetail>) => void;
-  onCreate: () => void;
-  tags: Tag[];
-}) {
-  if (!open) return null;
-  return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <h3>Nuovo prodotto</h3>
-        <label>Title</label>
-        <input
-          className="input"
-          value={draft.title || ""}
-          onChange={(e) => onChange({ title: e.target.value })}
-        />
-        <label>Description</label>
-        <textarea
-          className="textarea"
-          value={draft.description || ""}
-          onChange={(e) => onChange({ description: e.target.value })}
-        />
-        <label>Brand</label>
-        <input
-          className="input"
-          value={draft.brand || ""}
-          onChange={(e) => onChange({ brand: e.target.value })}
-        />
-        <label>Origin type</label>
-        <input
-          className="input"
-          value={draft.origin_type || ""}
-          onChange={(e) => onChange({ origin_type: e.target.value })}
-        />
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button className="button primary" onClick={onCreate}>
-            Crea
-          </button>
-          <button className="button secondary" onClick={onClose}>
-            Annulla
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  onClick,
-}: {
-  label: string;
-  value: React.ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <div
-      className="stat-card"
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : -1}
-      style={onClick ? { cursor: "pointer" } : undefined}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                onClick();
-              }
-            }
-          : undefined
-      }
-    >
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function Kpi({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="kpi">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
