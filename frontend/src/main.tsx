@@ -7,6 +7,7 @@ import MergeView from "./components/MergeView";
 import { fetchJson, formatDate, formatMoney, labelFromHost, derivePlatformLabel, makeEmptyPrice, makeEmptySourceUrl, buildTagLabel, TAG_KIND_LABELS, TAG_KIND_ORDER } from "./utils/format";
 import type { ProductSummary, Tag, SourceWebsite, ProductDetail } from "./types";
 import CreationModal from "./components/CreationModal"
+import { StatCard, Kpi } from "./components/Stats";
 
 function App() {
   const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
@@ -2949,47 +2950,6 @@ function App() {
         tags={tags}
       />
       <footer className="app-footer">Versione: {appVersion}</footer>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  onClick,
-}: {
-  label: string;
-  value: React.ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <div
-      className="stat-card"
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : -1}
-      style={onClick ? { cursor: "pointer" } : undefined}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                onClick();
-              }
-            }
-          : undefined
-      }
-    >
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function Kpi({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="kpi">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
