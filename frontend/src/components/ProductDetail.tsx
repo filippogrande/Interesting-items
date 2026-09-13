@@ -41,7 +41,6 @@ export default function ProductDetail(props: any) {
     tagsByKind,
     tags,
     editingTagIds,
-    setEditingTagIds,
     bundleCreatorOpen,
     setBundleCreatorOpen,
     bundleDraft,
