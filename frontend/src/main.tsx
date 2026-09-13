@@ -8,6 +8,7 @@ import { fetchJson, formatDate, formatMoney, labelFromHost, derivePlatformLabel,
 import type { ProductSummary, Tag, SourceWebsite, ProductDetail } from "./types";
 import CreationModal from "./components/CreationModal"
 import { StatCard, Kpi } from "./components/Stats";
+import { SourcesView } from "./components/SourcesView"
 
 function App() {
   const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
@@ -1379,59 +1380,25 @@ function App() {
             onBack={() => setView("dashboard")}
             onRefresh={() => void loadTagsStats()}
           />
-        ) : view === "sources" ? (
-          <section className="panel list-panel">
-            <div className="panel-header">
-              <h2>Source websites</h2>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="button secondary"
-                  onClick={() => {
-                    setView("dashboard");
-                  }}
-                >
-                  Indietro
-                </button>
-                <button
-                  className="button"
-                  onClick={() => {
-                    void loadSourceWebsitesStats();
-                  }}
-                >
-                  Aggiorna
-                </button>
-              </div>
-            </div>
-
-            {error && <div className="error-box">{error}</div>}
-
-            <div style={{ display: "grid", gap: 8 }}>
-              <button
-                className="button"
-                onClick={() => {
-                  setSelectedTagId("");
-                  setSelectedSourceSite("");
-                  setView("dashboard");
-                }}
-              >
-                Tutti i siti ({stats.products})
-              </button>
-
-              {(sourceWebsitesStats?.websites || []).map((site) => (
-                <button
-                  key={site.name}
-                  className="button"
-                  onClick={() => {
-                    setSelectedTagId("");
-                    setSelectedSourceSite(site.name);
-                    setView("dashboard");
-                  }}
-                >
-                  {site.name} ({site.count})
-                </button>
-              ))}
-            </div>
-          </section>
+        {view === "sources" ? (
+  <SourcesView
+    sourceWebsitesStats={sourceWebsitesStats}
+    totalProducts={products.length}
+    error={error}
+    onBack={() => setView("dashboard")}
+    onRefresh={() => void loadSourceWebsitesStats()}
+    onSelectAll={() => {
+      setSelectedTagId("");
+      setSelectedSourceSite("");
+      setView("dashboard");
+    }}
+    onSelectSite={(siteName) => {
+      setSelectedTagId("");
+      setSelectedSourceSite(siteName);
+      setView("dashboard");
+    }}
+  />
+) : view === "tags" ? (
         ) : (
           <section className="panel list-panel">
             <div className="panel-header">
