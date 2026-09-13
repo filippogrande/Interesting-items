@@ -64,9 +64,7 @@ export function useMerge({
   const loadMergeCandidate = useCallback(async (productId: number) => {
     setMergeCandidateLoading(true);
     try {
-      const detail = await fetchJson<ProductDetail>(
-        `/api/dashboard/products/${productId}`,
-      );
+      const detail = await loadDetail(productId);
       setMergeCandidateDetail(detail);
       setMergeSelectedImageIds(detail.images.map((image: any) => image.id));
       setMergeSelectedPriceIds(detail.prices.map((price: any) => price.id));
@@ -77,7 +75,7 @@ export function useMerge({
     } finally {
       setMergeCandidateLoading(false);
     }
-  }, []);
+  }, [loadDetail]);
 
   const openMergeEditor = useCallback(
     (product: ProductDetail) => {
@@ -87,12 +85,36 @@ export function useMerge({
     [buildMergeDraft],
   );
 
-  const commitMerge = useCallback(async () => {
-    // Implementation would call the API to merge products
-    // Placeholder - actual implementation depends on the API
+  const commitMerge = useCallback(async (selectedId: number) => {
+    if (!mergeCandidateDetail) {
+      throw new Error("No merge candidate selected");
+    }
+    const payload = {
+      target_id: selectedId,
+      source_id: mergeCandidateDetail.id,
+      title: mergeDraft.title || undefined,
+      description: mergeDraft.description || undefined,
+      brand: mergeDraft.brand || undefined,
+      origin_type: mergeDraft.origin_type || undefined,
+      product_metadata: mergeDraft.product_metadata || undefined,
+      category_id: mergeDraft.category_id || undefined,
+      archived: mergeDraft.archived,
+      selected_image_ids: mergeSelectedImageIds,
+      selected_price_ids: mergeSelectedPriceIds,
+      selected_source_url_ids: mergeSelectedSourceUrlIds,
+    };
+    const resp = await fetch("/api/merges", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
     setMergePhase("chooser");
     setMergeCandidateDetail(null);
-  }, []);
+    return resp.json();
+  }, [mergeCandidateDetail, mergeDraft, mergeSelectedImageIds, mergeSelectedPriceIds, mergeSelectedSourceUrlIds]);
 
   return {
     mergeCandidateDetail,
