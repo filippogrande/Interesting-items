@@ -89,9 +89,10 @@ export function useMerge({
     if (!mergeCandidateDetail) {
       throw new Error("No merge candidate selected");
     }
+
     const payload = {
-      target_id: selectedId,
-      source_id: mergeCandidateDetail.id,
+      main_product_id: selectedId,
+      merge_product_id: mergeCandidateDetail.id,
       title: mergeDraft.title || undefined,
       description: mergeDraft.description || undefined,
       brand: mergeDraft.brand || undefined,
@@ -103,14 +104,17 @@ export function useMerge({
       selected_price_ids: mergeSelectedPriceIds,
       selected_source_url_ids: mergeSelectedSourceUrlIds,
     };
-    const resp = await fetch("/api/merges", {
+
+    const resp = await fetch("/api/products/merge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }
+
     setMergePhase("chooser");
     setMergeCandidateDetail(null);
     return resp.json();
