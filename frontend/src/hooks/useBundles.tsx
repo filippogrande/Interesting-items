@@ -31,9 +31,9 @@ export function useBundles({
     productIds: [],
   });
 
-  const createBundle = useCallback(async () => {
+  const createBundle = useCallback(async (selectedId: number) => {
     const productIds = Array.from(
-      new Set(bundleDraft.productIds),
+      new Set([selectedId, ...bundleDraft.productIds]),
     ).filter(Boolean);
     if (productIds.length < 2) {
       throw new Error("Seleziona almeno due prodotti per creare un bundle");
@@ -56,6 +56,7 @@ export function useBundles({
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }
+    const result = await resp.json();
     setBundleCreatorOpen(false);
     setBundleDraft({
       title: "",
@@ -65,15 +66,20 @@ export function useBundles({
       notes: "",
       productIds: [],
     });
-    return resp.json();
-  }, [bundleDraft]);
+    await loadProducts();
+    if (selectedId) {
+      await loadDetail(selectedId);
+    }
+    return result;
+  }, [bundleDraft, loadDetail, loadProducts]);
 
-  const createBundleFromPrice = useCallback((price: any) => {
+  const createBundleFromPrice = useCallback((price: any, selectedId?: number) => {
     setBundleDraft((current) => ({
       ...current,
       amount: String(price.amount),
       currency: price.currency || "EUR",
       sourceUrl: price.source_url || "",
+      productIds: selectedId ? [selectedId] : [],
     }));
     setBundleCreatorOpen(true);
   }, []);
