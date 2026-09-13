@@ -28,17 +28,25 @@ type MergeViewProps = {
   excludeTagIds: number[];
 };
 
-function MergeSelectedSummary({ entity }: { entity: any }) {
-  if (!entity) return <div className="empty-state" style={{ position: "sticky", top: 0 }}>Seleziona il prodotto.</div>;
+function MergePinnedCard({ entity, label }: { entity: any; label: string }) {
+  if (!entity) {
+    return (
+      <div style={{
+        padding: "12px",
+        background: "var(--bg, #0f1115)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+      }}>
+        <div className="empty-state">Seleziona il prodotto {label}.</div>
+      </div>
+    );
+  }
   return (
     <div style={{
-      display: "grid", gap: 10, position: "sticky", top: 0,
-      background: "var(--bg, #0f1115)", padding: "10px 0", zIndex: 2,
+      padding: "12px",
+      background: "var(--bg, #0f1115)",
       borderBottom: "1px solid rgba(255,255,255,0.08)",
     }}>
-      <div className="kpi"><span>Selezionato</span><strong>#{entity.id} - {entity.title}</strong></div>
-      <div className="kpi"><span>Descrizione</span><strong>{entity.description}</strong></div>
-      <div className="kpi"><span>Immagini / Prezzi</span><strong>{entity.images.length} / {entity.prices.length}</strong></div>
+      <ProductCard product={entity} active={true} onClick={() => {}} />
     </div>
   );
 }
@@ -138,20 +146,28 @@ export default function MergeView(props: MergeViewProps) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }}>
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-header"><h3>Main</h3><span className="muted">Prodotto da mantenere</span></div>
-          <MergeSelectedSummary entity={selected} />
-          <div className="product-list" style={{ marginBottom: 14, maxHeight: "52vh", overflowY: "auto", flex: 1 }}>
-            {filteredProducts.map((product) => (
-              <ProductCard key={`merge-main-${product.id}`} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
-            ))}
+          <div className="product-list" style={{ marginBottom: 14, maxHeight: "55vh", overflowY: "auto", flex: 1 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
+              <MergePinnedCard entity={selected} label="principale" />
+            </div>
+            {filteredProducts
+              .filter((p) => p.id !== selected?.id)
+              .map((product) => (
+                <ProductCard key={`merge-main-${product.id}`} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
+              ))}
           </div>
         </div>
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-header"><h3>Da mergiare</h3><span className="muted">Prodotto che verrà eliminato</span></div>
-          <MergeSelectedSummary entity={mergeCandidateDetail} />
-          <div className="product-list" style={{ marginBottom: 14, maxHeight: "52vh", overflowY: "auto", flex: 1 }}>
-            {filteredProducts.filter((p) => p.id !== selected?.id).map((product) => (
-              <ProductCard key={`merge-source-${product.id}`} product={product} active={mergeCandidateDetail?.id === product.id} onClick={() => void loadMergeCandidate(product.id)} />
-            ))}
+          <div className="product-list" style={{ marginBottom: 14, maxHeight: "55vh", overflowY: "auto", flex: 1 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
+              <MergePinnedCard entity={mergeCandidateDetail} label="da mergiare" />
+            </div>
+            {filteredProducts
+              .filter((p) => p.id !== selected?.id)
+              .map((product) => (
+                <ProductCard key={`merge-source-${product.id}`} product={product} active={mergeCandidateDetail?.id === product.id} onClick={() => void loadMergeCandidate(product.id)} />
+              ))}
           </div>
         </div>
       </div>
