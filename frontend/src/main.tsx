@@ -42,8 +42,14 @@ function App() {
   const createBundle = () => createBundleFn(selected?.id as number);
   const createBundleFromPrice = (price: any, idx: number) => createBundleFromPriceFn(price, selected?.id as number);
 
+  // Auto-seleziona il primo prodotto al mount (comportamento originale)
   useEffect(() => {
-    void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds);
+    void (async () => {
+      const list = await loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds);
+      if (list && list.length > 0) {
+        await loadDetail(list[0].id);
+      }
+    })();
     void loadTagsStats();
     void loadSourceWebsitesStats();
   }, []);
@@ -102,10 +108,12 @@ function App() {
                 </div>
               </div>
               <div className="stats-row">
-                <StatCard label="Prodotti" value={stats.products} />
+                <StatCard label="Prodotti" value={stats.products} onClick={() => { resetFilters(); setView("dashboard"); }} />
                 <StatCard label="Immagini" value={stats.images} />
                 <StatCard label="Prezzi" value={stats.prices} />
                 <StatCard label="Sorgenti" value={stats.sources} />
+                <StatCard label="Unisci i prodotti" value="↔" onClick={() => { resetFilters(); setMergePhase("chooser"); setView("merge"); }} />
+                <StatCard label="Tag" value={stats.tags} onClick={() => { resetFilters(); setView("tags"); void loadTagsStats(); }} />
               </div>
               {error && <div className="error-box">{error}</div>}
               <div className="product-list">
