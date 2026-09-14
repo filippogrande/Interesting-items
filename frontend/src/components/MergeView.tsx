@@ -142,7 +142,8 @@ function MergeChooser({
   );
 }
 
-// Riga per un campo singolo: confronto sinistra/destra + campo modificabile.
+// Riga per un campo singolo: confronto sinistra/destra in due colonne (click =
+// seleziona quel valore) + campo modificabile con il valore scelto.
 function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
   const leftVal = left ? left[field] ?? "" : "";
   const rightVal = right ? right[field] ?? "" : "";
@@ -150,15 +151,28 @@ function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
   const pick = (v: any) => setDraft((c: any) => ({ ...c, [field]: v ?? "" }));
   const isFromLeft = String(currentVal) === String(leftVal) && leftVal !== "";
   const isFromRight = String(currentVal) === String(rightVal) && rightVal !== "";
+  const showText = (v: any) => (v === "" || v == null ? "—" : String(v));
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <div style={labelStyle}>{label}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <button className={`button tiny ${isFromLeft ? "primary" : "secondary"}`} onClick={() => pick(leftVal)} title="Usa il valore a sinistra">
-          ← Sinistra
+        <button
+          className={`tag-option ${isFromLeft ? "selected" : ""}`}
+          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          onClick={() => pick(leftVal)}
+          title="Usa il valore a sinistra"
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>←</span>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(leftVal)}</span>
         </button>
-        <button className={`button tiny ${isFromRight ? "primary" : "secondary"}`} onClick={() => pick(rightVal)} title="Usa il valore a destra">
-          Destra →
+        <button
+          className={`tag-option ${isFromRight ? "selected" : ""}`}
+          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          onClick={() => pick(rightVal)}
+          title="Usa il valore a destra"
+        >
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(rightVal)}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>→</span>
         </button>
       </div>
       {field === "description" ? (
