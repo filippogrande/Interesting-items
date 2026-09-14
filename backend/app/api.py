@@ -104,9 +104,10 @@ class ProductMergeIn(BaseModel):
     product_metadata: Optional[str] = None
     category_id: Optional[int] = None
     archived: Optional[bool] = None
-    selected_image_ids: List[int] = []
-    selected_price_ids: List[int] = []
-    selected_source_url_ids: List[int] = []
+    keep_image_ids: List[int] = []
+    keep_price_ids: List[int] = []
+    keep_source_url_ids: List[int] = []
+    tag_ids: List[int] = []
 
 
 class ProductDuplicateIn(BaseModel):
@@ -570,6 +571,7 @@ def merge_products(payload: ProductMergeIn):
         if not main or not source:
             raise HTTPException(status_code=404, detail="Product not found")
 
+        # --- campi singoli (valori finali già scelti/modificati dall'editor) ---
         if payload.title is not None:
             main.title = payload.title
         if payload.description is not None:
@@ -585,28 +587,42 @@ def merge_products(payload: ProductMergeIn):
         if payload.archived is not None:
             main.archived = payload.archived
 
-        source_image_ids = set(payload.selected_image_ids or [image.id for image in session.exec(select(Image).where(Image.product_id == source.id)).all()])
-        source_price_ids = set(payload.selected_price_ids or [price.id for price in session.exec(select(Price).where(Price.product_id == source.id)).all()])
-        source_url_ids = set(payload.selected_source_url_ids or [src.id for src in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all()])
+        keep_image_ids = set(payload.keep_image_ids)
+        keep_price_ids = set(payload.keep_price_ids)
+        keep_source_url_ids = set(payload.keep_source_url_ids)
 
+        # --- sposta dal prodotto sorgente al principale ciò che va mantenuto ---
         for image in session.exec(select(Image).where(Image.product_id == source.id)).all():
-            if image.id in source_image_ids:
+            if image.id in keep_image_ids:
                 image.product_id = main.id
-
         for price in session.exec(select(Price).where(Price.product_id == source.id)).all():
-            if price.id in source_price_ids:
+            if price.id in keep_price_ids:
                 price.product_id = main.id
-
         for source_url in session.exec(select(SourceUrl).where(SourceUrl.product_id == source.id)).all():
-            if source_url.id in source_url_ids:
+            if source_url.id in keep_source_url_ids:
                 source_url.product_id = main.id
 
-        source_tag_ids = [link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == source.id)).all()]
-        target_tag_ids = {link.tag_id for link in session.exec(select(ProductTagLink).where(ProductTagLink.product_id == main.id)).all()}
-        for tag_id in source_tag_ids:
-            if tag_id not in target_tag_ids:
+        # --- elimina dal prodotto principale ciò che è stato rimosso con la X ---
+        for image in session.exec(select(Image).where(Image.product_id == main.id)).all():
+            if image.id not in keep_image_ids:
+                session.delete(image)
+        for price in session.exec(select(Price).where(Price.product_id == main.id)).all():
+            if price.id not in keep_price_ids:
+                session.delete(price)
+        for source_url in session.exec(select(SourceUrl).where(SourceUrl.product_id == main.id)).all():
+            if source_url.id not in keep_source_url_ids:
+                session.delete(source_url)
+
+        # --- tags: set finale esplicito (unione dei due meno le X) ---
+        existing_links = session.exec(select(ProductTagLink).where(ProductTagLink.product_id == main.id)).all()
+        for link in existing_links:
+            session.delete(link)
+        for tag_id in dict.fromkeys(payload.tag_ids):
+            tag = session.get(Tag, tag_id)
+            if tag:
                 session.add(ProductTagLink(product_id=main.id, tag_id=tag_id))
 
+        # --- bundle: unione automatica (non gestita dall'editor) ---
         source_bundle_ids = [link.bundle_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == source.id)).all()]
         target_bundle_ids = {link.bundle_id for link in session.exec(select(BundleProductLink).where(BundleProductLink.product_id == main.id)).all()}
         for bundle_id in source_bundle_ids:
