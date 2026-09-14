@@ -1,7 +1,7 @@
 # Architettura Interesting Items
 
-> Mappa della struttura reale del progetto. Coerente con `DEVELOPMENT_GUIDELINES.md` v1.0.
-> Ultimo aggiornamento: 19 agosto 2026
+> Mappa della struttura reale del progetto. Coerente con `DEVELOPMENT_GUIDELINES.md`.
+> Ultimo aggiornamento: 14 settembre 2026
 
 ## Struttura del Progetto
 
@@ -22,8 +22,11 @@
 - Nessun sistema di migrazioni automatico: lo schema si evolve via nuova versione dell'app.
 
 ### Frontend (`frontend/`)
-- `src/main.tsx` — **ATTUALMENTE MONOLITICO (≈143KB)**. Contiene `App()`, tutte le viste (dashboard/tags/sources/merge) e tutta la logica. Da spezzare in componenti (vedi DEVELOPMENT_GUIDELINES §regola-0).
-- `src/components/` — `ProductList.tsx`, `ProductDetail.tsx` (gli unici componenti già separati).
+- `src/main.tsx` — **orchestratore**: `App()` compone gli hook e rende la vista in base alla tab attiva (dashboard/tags/sources/merge). File snello (~400 righe).
+- `src/hooks/` — logica di stato estratta: `useProducts`, `useProductDetail`, `useMerge`, `useBundles`, `useTags`, `useSourceWebsites`.
+- `src/components/` — componenti UI: `ProductDetailPanel`, `MergeView`, `TagsView`, `SourcesView`, `ProductCard`, `CreationModal`, `LightboxViewer`, `Stats` (StatCard/Kpi).
+- `src/utils/format.ts` — helper formattazione (`fetchJson`, `formatDate`, `formatMoney`, `derivePlatformLabel`, `makeEmptyPrice`, ...).
+- `src/types.ts` — tipi condivisi (`ProductSummary`, `ProductDetail`, `Tag`, `SourceWebsite`).
 - `src/styles.css` — stile globale (classi `.panel`, `.product-card`, `.kpi`, `.error-box`, ...).
 - Vite + React + TypeScript; build servito dal container `frontend` (nginx).
 
@@ -38,13 +41,11 @@
 - URL UI: `http://10.0.0.5:3002` (il bot costruisce i link interni con `BASE_URL` dal `.env`; deve puntare a `10.0.0.5:3002`, non `localhost`).
 - Modifiche via branch → PR → merge in `main` → `git pull` + `docker compose up -d` nella cartella `/mnt/applicazioni/yml/docker/interesting-items`.
 
-## Aree da sistemare (paletti vincolanti da DEVELOPMENT_GUIDELINES v1.0)
+## Aree da sistemare (paletti da DEVELOPMENT_GUIDELINES)
 
-- 🔴 `main.tsx` monolitico → spezzare in componenti (`Dashboard.tsx`, `MergeView.tsx`, `TagsView.tsx`, `SourcesView.tsx`)
-- 🔴 Duplicazione card prodotto (ridisegnata a mano nel merge invece di riusare `<ProductCard>`)
-- 🟡 Cap fissi su paginazione (`limit: 100` in `loadProducts`) → usare paginazione/scroll infinito
-- 🟡 Card prodotto: estrarre `<ProductCard>` riusabile
-- 🟢 Documentare endpoint in modo strutturato (al momento non c'è un openapi/`.md` API; da valutare)
+- 🟡 Paginazione: assicurarsi di non usare cap fissi (`limit: 100`) in `loadProducts`; preferire paginazione/scroll infinito.
+- 🟡 Card prodotto: `ProductCard` riusabile estratto e usato sia nella lista sia nel merge (verificare che non ci siano copie a mano).
+- 🟢 Documentare gli endpoint in modo strutturato (openapi o `.md` API dedicato; da valutare).
 
 ## Backlog
 Il backlog di feature e task di refactor/cleanup è su **TickTick** (progetto "Interesting items"). Qui solo i paletti riassunti da `DEVELOPMENT_GUIDELINES.md`.
