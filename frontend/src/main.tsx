@@ -51,6 +51,14 @@ function App() {
     void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds, true);
   }, [selectedTagId, selectedSourceSite, excludeTagIds]);
 
+  // Ricarica i prodotti ogni volta che si entra nella vista merge, così i prodotti
+  // eliminati/mergiati in precedenza non restano visibili (dati freschi).
+  useEffect(() => {
+    if (view === "merge") {
+      void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds, true);
+    }
+  }, [view]);
+
   const toggleProductTag = async (productId: number, tagId: number, shouldAdd: boolean) => {
     try {
       if (shouldAdd) await fetch(`/api/products/${productId}/tags/${tagId}`, { method: "POST" });
