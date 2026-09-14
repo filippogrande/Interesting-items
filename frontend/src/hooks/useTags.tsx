@@ -47,17 +47,27 @@ export function useTags() {
     return resp.json();
   }, [newTagName, newTagKind, newTagParentId, loadTagsStats]);
 
+  const tagMap = useMemo(() => {
+    const map = new Map<number, Tag>();
+    tags.forEach((tag) => map.set(tag.id, tag));
+    return map;
+  }, [tags]);
+
+  // Restituisce gli id degli antenati (dal parent più vicino alla radice).
+  // Usa tagMap del closure (come l'originale), non lo richiede come parametro.
   const getAncestorIds = useCallback(
-    (tagId: number, tagMap: Map<number, Tag>): number[] => {
-      const ancestors: number[] = [];
+    (tagId: number): number[] => {
+      const result: number[] = [];
       let current = tagMap.get(tagId);
-      while (current?.parent_id) {
-        ancestors.push(current.parent_id);
-        current = tagMap.get(current.parent_id);
+      while (current && current.parent_id) {
+        const pid = current.parent_id;
+        if (!pid) break;
+        result.unshift(pid);
+        current = tagMap.get(pid);
       }
-      return ancestors;
+      return result;
     },
-    [],
+    [tagMap],
   );
 
   const toggleProductTag = useCallback((tagId: number, editingTagIds: number[], setEditingTagIds: React.Dispatch<React.SetStateAction<number[]>>) => {
@@ -67,12 +77,6 @@ export function useTags() {
         : [...current, tagId],
     );
   }, []);
-
-  const tagMap = useMemo(() => {
-    const map = new Map<number, Tag>();
-    tags.forEach((tag) => map.set(tag.id, tag));
-    return map;
-  }, [tags]);
 
   const tagsByKind = useMemo(() => {
     const groups: Record<string, Tag[]> = {
