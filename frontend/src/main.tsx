@@ -17,9 +17,6 @@ import { useSourceWebsites } from "./hooks/useSourceWebsites";
 import { formatDate, formatMoney, derivePlatformLabel, makeEmptyPrice, makeEmptySourceUrl, TAG_KIND_LABELS, TAG_KIND_ORDER } from "./utils/format";
 import type { ProductDetail } from "./types";
 
-// Props comuni per le viste che mostrano lista + dettaglio (dashboard/tags/sources)
-const detailPanelProps = (s: any) => s;
-
 function App() {
   const appVersion = (import.meta as any)?.env?.VITE_APP_VERSION ?? "v0.1.11";
   const [view, setView] = useState("dashboard");
@@ -81,7 +78,7 @@ function App() {
   const onBack = () => setView("dashboard");
   const onRefresh = () => { void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds); void loadTagsStats(); void loadSourceWebsitesStats(); };
   const onSelectAll = () => { setSelectedTagId(""); setSelectedSourceSite(""); setExcludeTagIds([]); };
-  const onSelectSite = (siteName: string) => { setSelectedSourceSite(siteName); setSelectedTagId(""); setView("dashboard"); };
+  const onSelectSite = (siteName: string) => { setSelectedSourceSite(siteName); setSelectedTagId(""); };
 
   // Props del pannello dettaglio, riusati in tutte le viste lista+dettaglio
   const detailPanel = {
@@ -141,7 +138,7 @@ function App() {
       <main className="app-main">
         {view === "dashboard" && renderListDetail()}
         {view === "tags" && (<TagsView error={error} statsProducts={stats.products} tagsStats={tagsStats} selectedTagId={selectedTagId} setSelectedTagId={setSelectedTagId} selectedSourceSite={selectedSourceSite} setSelectedSourceSite={setSelectedSourceSite} query={query} setQuery={setQuery} TAG_KIND_ORDER={TAG_KIND_ORDER} TAG_KIND_LABELS={TAG_KIND_LABELS} tagsByKind={tagsByKind} excludeTagsExpanded={excludeTagsExpanded} setExcludeTagsExpanded={setExcludeTagsExpanded} excludeTagIds={excludeTagIds} toggleExcludeTag={toggleExcludeTag} clearExcludeTags={clearExcludeTags} tagMap={tagMap} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} onBack={onBack} onRefresh={onRefresh} detailPanel={detailPanel} />)}
-        {view === "sources" && (<SourcesView sourceWebsitesStats={sourceWebsitesStats} totalProducts={stats.products} error={error} onBack={onBack} onRefresh={onRefresh} onSelectAll={onSelectAll} onSelectSite={onSelectSite} detailPanel={detailPanel} selectedSourceSite={selectedSourceSite} />)}
+        {view === "sources" && (<SourcesView sourceWebsitesStats={sourceWebsitesStats} totalProducts={stats.products} error={error} onBack={onBack} onRefresh={onRefresh} onSelectAll={onSelectAll} onSelectSite={onSelectSite} selectedSourceSite={selectedSourceSite} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} query={query} setQuery={setQuery} detailPanel={detailPanel} />)}
         {view === "merge" && (<MergeView filteredProducts={filteredProducts} selected={selected} mergeCandidateDetail={mergeCandidateDetail} query={query} setQuery={setQuery} error={error} setView={setView} loadDetail={loadDetail} loadMergeCandidate={loadMergeCandidate} commitMerge={commitMerge} mergeDraft={mergeDraftState} setMergeDraft={setMergeDraftState} mergeSelectedImageIds={mergeSelectedImageIds} setMergeSelectedImageIds={setMergeSelectedImageIds} mergeSelectedPriceIds={mergeSelectedPriceIds} setMergeSelectedPriceIds={setMergeSelectedPriceIds} mergeSelectedSourceUrlIds={mergeSelectedSourceUrlIds} setMergeSelectedSourceUrlIds={setMergeSelectedSourceUrlIds} selectedTagId={selectedTagId} selectedSourceSite={selectedSourceSite} excludeTagIds={excludeTagIds} />)}
       </main>
 
