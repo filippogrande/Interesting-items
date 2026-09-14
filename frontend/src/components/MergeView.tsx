@@ -88,8 +88,8 @@ function ToggleKeep({
 }
 
 // Vista selezione: due colonne con scroll interno e card pinnata in alto.
-// Ogni colonna seleziona in modo INDIPENDENTE e non può contenere il prodotto
-// selezionato sull'altra colonna (niente doppia selezione dello stesso oggetto).
+// Ogni colonna seleziona in modo INDIPENDENTE (la destra carica via API senza
+// toccare 'selected') e non può contenere il prodotto selezionato sull'altra.
 function MergeChooser({
   filteredProducts,
   selected,
@@ -142,8 +142,21 @@ function MergeChooser({
   );
 }
 
-// Riga per un campo singolo: confronto sinistra/destra in due colonne (click =
-// seleziona quel valore) + campo modificabile con il valore scelto.
+// Crea le coppie prezzo+link di un prodotto: prices[i] è legato a source_urls[i]
+// (stesso indice, come nella modalità modifica).
+function buildPairs(product: any) {
+  const prices = product?.prices || [];
+  const sources = product?.source_urls || [];
+  const len = Math.max(prices.length, sources.length);
+  const pairs: Array<{ price: any | null; source: any | null }> = [];
+  for (let i = 0; i < len; i++) {
+    pairs.push({ price: prices[i] || null, source: sources[i] || null });
+  }
+  return pairs;
+}
+
+// Riga per un campo singolo: valore sinistra | bottoni centrali | valore destra,
+// + campo modificabile con il valore scelto. Testo sempre bianco.
 function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
   const leftVal = left ? left[field] ?? "" : "";
   const rightVal = right ? right[field] ?? "" : "";
@@ -153,26 +166,28 @@ function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
   const isFromRight = String(currentVal) === String(rightVal) && rightVal !== "";
   const showText = (v: any) => (v === "" || v == null ? "—" : String(v));
   return (
-    <div style={{ display: "grid", gap: 8 }}>
+    <div style={{ display: "grid", gap: 6 }}>
       <div style={labelStyle}>{label}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 1fr", gap: 8, alignItems: "center" }}>
         <button
           className={`tag-option ${isFromLeft ? "selected" : ""}`}
-          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
           onClick={() => pick(leftVal)}
           title="Usa il valore a sinistra"
         >
-          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>←</span>
           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(leftVal)}</span>
         </button>
+        <div style={{ display: "grid", gap: 6 }}>
+          <button className={`button tiny ${isFromLeft ? "primary" : "secondary"}`} onClick={() => pick(leftVal)} title="Sinistra">←</button>
+          <button className={`button tiny ${isFromRight ? "primary" : "secondary"}`} onClick={() => pick(rightVal)} title="Destra">→</button>
+        </div>
         <button
           className={`tag-option ${isFromRight ? "selected" : ""}`}
-          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
           onClick={() => pick(rightVal)}
           title="Usa il valore a destra"
         >
           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(rightVal)}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>→</span>
         </button>
       </div>
       {field === "description" ? (
@@ -184,7 +199,8 @@ function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
   );
 }
 
-// Vista confronto: campi singoli (scelta + modifica) e campi multipli (unione + X).
+// Vista confronto: due metà sempre. Campi singoli affiancati con bottoni centrali;
+// immagini/tag unione con X; prezzi+link come coppie legate (X rimuove entrambi).
 function MergeEditor({
   selected,
   mergeCandidateDetail,
@@ -202,15 +218,45 @@ function MergeEditor({
   commitMerge,
   error,
 }: any) {
-  const unionImages = [...(selected?.images || []), ...(mergeCandidateDetail?.images || [])];
-  const unionPrices = [...(selected?.prices || []), ...(mergeCandidateDetail?.prices || [])];
-  const unionSources = [...(selected?.source_urls || []), ...(mergeCandidateDetail?.source_urls || [])];
-  const unionTags = [...(selected?.tags || []), ...(mergeCandidateDetail?.tags || [])];
-  // dedup by id per evitare card doppie quando un elemento è su entrambi
   const dedup = <T extends { id: number }>(arr: T[]): T[] => {
     const seen = new Set<number>();
     return arr.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
   };
+  const unionImages = dedup([...(selected?.images || []), ...(mergeCandidateDetail?.images || [])]);
+  const unionTags = dedup([...(selected?.tags || []), ...(mergeCandidateDetail?.tags || [])]);
+  // Coppie prezzo+link: union dei due prodotti, dedup per id del prezzo.
+  const mainPairs = buildPairs(selected);
+  const candidatePairs = buildPairs(mergeCandidateDetail);
+  const allPairs = [...mainPairs, ...candidatePairs];
+  const seenPairs = new Set<number>();
+  const unionPairs = allPairs.filter((pair) => {
+    const key = pair.price ? pair.price.id : pair.source ? pair.source.id : 0;
+    if (key === 0 || seenPairs.has(key)) return false;
+    seenPairs.add(key);
+    return true;
+  });
+
+  const pairKept = (pair: { price: any | null; source: any | null }) => {
+    const priceOk = pair.price ? keepPriceIds.includes(pair.price.id) : true;
+    const sourceOk = pair.source ? keepSourceUrlIds.includes(pair.source.id) : true;
+    return priceOk && sourceOk;
+  };
+  const togglePair = (pair: { price: any | null; source: any | null }) => {
+    const kept = pairKept(pair);
+    if (pair.price) {
+      setKeepPriceIds((c: number[]) =>
+        kept ? c.filter((x) => x !== pair.price!.id) : [...c, pair.price!.id],
+      );
+    }
+    if (pair.source) {
+      setKeepSourceUrlIds((c: number[]) =>
+        kept ? c.filter((x) => x !== pair.source!.id) : [...c, pair.source!.id],
+      );
+    }
+  };
+
+  const rowStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 };
+
   return (
     <>
       <div className="panel-header">
@@ -221,83 +267,145 @@ function MergeEditor({
         <button className="button primary" onClick={() => void commitMerge(selected?.id)} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
       </div>
       {error && <div className="error-box">{error}</div>}
-      <div style={{ display: "grid", gap: 18 }}>
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Campi singoli — scegli sinistra o destra, poi modifica se vuoi</h4>
-          <div style={{ display: "grid", gap: 14 }}>
+
+      <div style={rowStyle}>
+        {/* Colonna sinistra = prodotto MAIN */}
+        <div className="panel" style={{ minHeight: 0, padding: 16 }}>
+          <div className="panel-header"><h3>Main</h3><span className="muted">Sinistra</span></div>
+          <div style={{ display: "grid", gap: 12 }}>
             {scalarFields.map(({ field, label }) => (
-              <MergeFieldRow key={field} field={field} label={label} left={selected} right={mergeCandidateDetail} draft={mergeDraft} setDraft={setMergeDraft} />
-            ))}
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={labelStyle}>Archiviato</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <button className={`button tiny ${mergeDraft.archived === selected?.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!selected?.archived }))}>← Sinistra</button>
-                <button className={`button tiny ${mergeDraft.archived === mergeCandidateDetail?.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!mergeCandidateDetail?.archived }))}>Destra →</button>
-                <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !c.archived }))}>{mergeDraft.archived ? "Sì" : "No"}</button>
+              <div key={field} style={{ display: "grid", gap: 4 }}>
+                <div style={labelStyle}>{label}</div>
+                <button
+                  className={`tag-option ${String(mergeDraft[field]) === String(selected?.[field]) && selected?.[field] ? "selected" : ""}`}
+                  style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
+                  onClick={() => setMergeDraft((c: any) => ({ ...c, [field]: selected?.[field] ?? "" }))}
+                >
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected?.[field] || "—"}</span>
+                </button>
               </div>
+            ))}
+            <div style={{ display: "grid", gap: 4 }}>
+              <div style={labelStyle}>Archiviato</div>
+              <button
+                className={`tag-option ${mergeDraft.archived === selected?.archived ? "selected" : ""}`}
+                style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
+                onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!selected?.archived }))}
+              >
+                {selected?.archived ? "Sì" : "No"}
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini — unione dei due, togli con la X</h4>
-          <div className="gallery" style={{ margin: 0 }}>
-            {dedup(unionImages).map((image) => (
-              <div key={`img-${image.id}`} className="gallery-item" style={{ position: "relative", opacity: keepImageIds.includes(image.id) ? 1 : 0.4 }}>
-                <ToggleKeep id={image.id} keepIds={keepImageIds} setKeepIds={setKeepImageIds} />
-                {image.url ? <img src={image.url} alt="" /> : <div className="placeholder">No image</div>}
+        {/* Colonna destra = prodotto DA MERGIARE */}
+        <div className="panel" style={{ minHeight: 0, padding: 16 }}>
+          <div className="panel-header"><h3>Da mergiare</h3><span className="muted">Destra</span></div>
+          <div style={{ display: "grid", gap: 12 }}>
+            {scalarFields.map(({ field, label }) => (
+              <div key={field} style={{ display: "grid", gap: 4 }}>
+                <div style={labelStyle}>{label}</div>
+                <button
+                  className={`tag-option ${String(mergeDraft[field]) === String(mergeCandidateDetail?.[field]) && mergeCandidateDetail?.[field] ? "selected" : ""}`}
+                  style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
+                  onClick={() => setMergeDraft((c: any) => ({ ...c, [field]: mergeCandidateDetail?.[field] ?? "" }))}
+                >
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mergeCandidateDetail?.[field] || "—"}</span>
+                </button>
               </div>
             ))}
-            {dedup(unionImages).length === 0 && <div className="empty-state">Nessuna immagine.</div>}
+            <div style={{ display: "grid", gap: 4 }}>
+              <div style={labelStyle}>Archiviato</div>
+              <button
+                className={`tag-option ${mergeDraft.archived === mergeCandidateDetail?.archived ? "selected" : ""}`}
+                style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
+                onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!mergeCandidateDetail?.archived }))}
+              >
+                {mergeCandidateDetail?.archived ? "Sì" : "No"}
+              </button>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Prezzi — unione dei due, togli con la X</h4>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-            {dedup(unionPrices).map((price) => {
-              const src = unionSources.find((s) => s.id === price.id);
-              return (
-                <div key={`price-${price.id}`} className="tag-option" style={{ position: "relative", opacity: keepPriceIds.includes(price.id) ? 1 : 0.4 }}>
-                  <ToggleKeep id={price.id} keepIds={keepPriceIds} setKeepIds={setKeepPriceIds} />
-                  <div style={{ display: "grid", gap: 4, paddingRight: 18 }}>
-                    <strong>{formatMoney(price.amount, price.currency)}</strong>
-                    <span>{derivePlatformLabel(price, src)}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {dedup(unionPrices).length === 0 && <div className="empty-state">Nessun prezzo.</div>}
+      {/* Campo modificabile per il valore scelto */}
+      <div className="editing-panel">
+        <h4 style={{ marginTop: 0, marginBottom: 12 }}>Valori finali — modifica se vuoi</h4>
+        <div style={{ display: "grid", gap: 12 }}>
+          {scalarFields.map(({ field, label }) => (
+            <div key={field} style={{ display: "grid", gap: 4 }}>
+              <div style={labelStyle}>{label}</div>
+              {field === "description" ? (
+                <textarea className="textarea" value={mergeDraft[field]} onChange={(e) => setMergeDraft((c: any) => ({ ...c, [field]: e.target.value }))} />
+              ) : (
+                <input className="input" value={mergeDraft[field]} onChange={(e) => setMergeDraft((c: any) => ({ ...c, [field]: e.target.value }))} />
+              )}
+            </div>
+          ))}
+          <div style={{ display: "grid", gap: 4 }}>
+            <div style={labelStyle}>Archiviato</div>
+            <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !c.archived }))}>{mergeDraft.archived ? "Sì" : "No"}</button>
           </div>
         </div>
+      </div>
 
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Link — unione dei due, togli con la X</h4>
-          <div style={{ display: "grid", gap: 8 }}>
-            {dedup(unionSources).map((source) => (
-              <div key={`source-${source.id}`} className="tag-option" style={{ position: "relative", opacity: keepSourceUrlIds.includes(source.id) ? 1 : 0.4 }}>
-                <ToggleKeep id={source.id} keepIds={keepSourceUrlIds} setKeepIds={setKeepSourceUrlIds} />
+      <div className="editing-panel">
+        <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini — unione dei due, togli con la X</h4>
+        <div className="gallery" style={{ margin: 0 }}>
+          {unionImages.map((image) => (
+            <div key={`img-${image.id}`} className="gallery-item" style={{ position: "relative", opacity: keepImageIds.includes(image.id) ? 1 : 0.4 }}>
+              <ToggleKeep id={image.id} keepIds={keepImageIds} setKeepIds={setKeepImageIds} />
+              {image.url ? <img src={image.url} alt="" /> : <div className="placeholder">No image</div>}
+            </div>
+          ))}
+          {unionImages.length === 0 && <div className="empty-state">Nessuna immagine.</div>}
+        </div>
+      </div>
+
+      <div className="editing-panel">
+        <h4 style={{ marginTop: 0, marginBottom: 12 }}>Prezzi e link — coppie legate, togli con la X</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          {unionPairs.map((pair) => {
+            const kept = pairKept(pair);
+            return (
+              <div key={`pair-${pair.price?.id ?? pair.source?.id}`} className="tag-option" style={{ position: "relative", opacity: kept ? 1 : 0.4 }}>
+                <button
+                  className={`button tiny ${kept ? "danger" : ""}`}
+                  style={{ position: "absolute", top: 8, right: 8, zIndex: 2, padding: "2px 8px", lineHeight: 1 }}
+                  onClick={() => togglePair(pair)}
+                  title={kept ? "Rimuovi dal merge" : "Ripristina nel merge"}
+                >
+                  {kept ? "×" : "↺"}
+                </button>
                 <div style={{ display: "grid", gap: 4, paddingRight: 18 }}>
-                  <a href={source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(undefined, source)}</a>
-                  <small>{source.url}</small>
+                  {pair.price ? (
+                    <strong>{formatMoney(pair.price.amount, pair.price.currency)}</strong>
+                  ) : (
+                    <em>—</em>
+                  )}
+                  {pair.source ? (
+                    <a href={pair.source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(pair.price, pair.source)}</a>
+                  ) : (
+                    <span className="muted">nessun link</span>
+                  )}
                 </div>
               </div>
-            ))}
-            {dedup(unionSources).length === 0 && <div className="empty-state">Nessun link.</div>}
-          </div>
+            );
+          })}
+          {unionPairs.length === 0 && <div className="empty-state">Nessun prezzo o link.</div>}
         </div>
+      </div>
 
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Tag — unione dei due, togli con la X</h4>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {dedup(unionTags).map((tag) => (
-              <div key={`tag-${tag.id}`} className="tag-pill" style={{ position: "relative", opacity: mergeTagIds.includes(tag.id) ? 1 : 0.4, paddingRight: 26 }}>
-                <ToggleKeep id={tag.id} keepIds={mergeTagIds} setKeepIds={setMergeTagIds} />
-                <span>{tag.name}</span>
-              </div>
-            ))}
-            {dedup(unionTags).length === 0 && <div className="empty-state">Nessun tag.</div>}
-          </div>
+      <div className="editing-panel">
+        <h4 style={{ marginTop: 0, marginBottom: 12 }}>Tag — unione dei due, togli con la X</h4>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {unionTags.map((tag) => (
+            <div key={`tag-${tag.id}`} className="tag-pill" style={{ position: "relative", opacity: mergeTagIds.includes(tag.id) ? 1 : 0.4, paddingRight: 26 }}>
+              <ToggleKeep id={tag.id} keepIds={mergeTagIds} setKeepIds={setMergeTagIds} />
+              <span>{tag.name}</span>
+            </div>
+          ))}
+          {unionTags.length === 0 && <div className="empty-state">Nessun tag.</div>}
         </div>
       </div>
     </>
