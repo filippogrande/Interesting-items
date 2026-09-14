@@ -1,4 +1,5 @@
 import React from "react";
+import ProductCard from "./ProductCard";
 import ProductDetailPanel from "./ProductDetailPanel";
 
 type ProductSummary = {
@@ -69,25 +70,7 @@ export function SourcesView({
         {selectedSourceSite && <div className="badge muted" style={{ marginBottom: 10 }}>Filtro sito: {selectedSourceSite}</div>}
         <div className="product-list">
           {filteredProducts.map((product) => (
-            <button key={product.id} className={`product-card ${selected?.id === product.id ? "active" : ""}`} onClick={() => loadDetail(product.id)}>
-              <div className="product-card-media">
-                {product.cover_image_url ? <img src={product.cover_image_url} alt={product.title} /> : <div className="placeholder">No image</div>}
-              </div>
-              <div className="product-card-body">
-                <div className="product-card-topline">
-                  <span>{product.origin_type || "unknown"}</span>
-                  <span>{formatDate(product.scraped_at || product.created_at)}</span>
-                </div>
-                <h3>{product.title}</h3>
-                <p>{product.description}</p>
-                <div className="product-card-meta">
-                  <span>{product.images_count} img</span>
-                  <span>{product.prices_count} prezzi</span>
-                  <span>{product.bundles_count || 0} bundle</span>
-                  <span>{formatMoney(product.latest_price, product.latest_currency)}</span>
-                </div>
-              </div>
-            </button>
+            <ProductCard key={product.id} product={product} active={selected?.id === product.id} onClick={() => loadDetail(product.id)} />
           ))}
           {!loadingList && filteredProducts.length === 0 && <div className="empty-state">Nessun prodotto trovato.</div>}
         </div>
