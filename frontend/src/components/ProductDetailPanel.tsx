@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, makeEmptyPrice, makeEmptySourceUrl, derivePlatformLabel, buildTagLabel, TAG_KIND_LABELS } from "../utils/format";
+import { formatDate, formatMoney, makeEmptyPrice, makeEmptySourceUrl, derivePlatformLabel, buildTagLabel } from "../utils/format";
 import type { ProductDetail, ProductSummary, Tag } from "../types";
 import { useState } from "react";
 
@@ -149,7 +149,6 @@ export default function ProductDetailPanel({
         method: "DELETE",
       });
       if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
-      await loadProducts(selectedTagId as number | "" | "untagged", selectedSourceSite);
       await loadProducts(selectedTagId as number | "" | "untagged", selectedSourceSite, excludeTagIds, true);
       setDraft(null);
     } catch (err) {
@@ -265,32 +264,31 @@ export default function ProductDetailPanel({
 
   async function handleDeleteRow(idx: number) {
     if (!selected) return;
-    if (draft && editing) {
-      if (priceToDelete && priceToDelete.id && priceToDelete.id > 0) {
-        if (!confirm("Eliminare questa riga?")) return;
-        try {
-          await fetch(`/api/prices/${priceToDelete.id}`, { method: "DELETE" });
-          if (sourceToDelete && sourceToDelete.id && sourceToDelete.id > 0) {
-            await fetch(`/api/sourceurls/${sourceToDelete.id}`, { method: "DELETE" });
-          }
-          await loadDetail(selected.id);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Errore eliminazione riga");
-        }
-      } else if (sourceToDelete && sourceToDelete.id && sourceToDelete.id > 0) {
-        if (!confirm("Eliminare questa riga?")) return;
-        try {
+    if (!draft || !editing) return;
+    if (priceToDelete && priceToDelete.id && priceToDelete.id > 0) {
+      if (!confirm("Eliminare questa riga?")) return;
+      try {
+        await fetch(`/api/prices/${priceToDelete.id}`, { method: "DELETE" });
+        if (sourceToDelete && sourceToDelete.id && sourceToDelete.id > 0) {
           await fetch(`/api/sourceurls/${sourceToDelete.id}`, { method: "DELETE" });
-          await loadDetail(selected.id);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Errore eliminazione riga");
         }
-      } else {
-        const copy = { ...draft };
-        copy.prices = copy.prices.filter((_: any, i: number) => i !== idx);
-        copy.source_urls = copy.source_urls.filter((_: any, i: number) => i !== idx);
-        setDraft(copy);
+        await loadDetail(selected.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Errore eliminazione riga");
       }
+    } else if (sourceToDelete && sourceToDelete.id && sourceToDelete.id > 0) {
+      if (!confirm("Eliminare questa riga?")) return;
+      try {
+        await fetch(`/api/sourceurls/${sourceToDelete.id}`, { method: "DELETE" });
+        await loadDetail(selected.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Errore eliminazione riga");
+      }
+    } else {
+      const copy = { ...draft };
+      copy.prices = copy.prices.filter((_: any, i: number) => i !== idx);
+      copy.source_urls = copy.source_urls.filter((_: any, i: number) => i !== idx);
+      setDraft(copy);
     }
   }
 
@@ -301,10 +299,9 @@ export default function ProductDetailPanel({
       let next = isOn
         ? current.filter((id) => id !== tagId)
         : Array.from(new Set([...current, ...ancestorIds, tagId]));
-      // cascade to descendants of a just-removed tag
       if (isOn) {
         const descendants = tags
-          .filter((t) => ancestorIds.includes(tagId) || t.parent_id === tagId)
+          .filter((t) => t.parent_id === tagId)
           .map((t) => t.id);
         next = next.filter((id) => !descendants.includes(id));
       }
@@ -409,11 +406,11 @@ export default function ProductDetailPanel({
           </div>
 
           {/* Immagini */}
-          {(selected.images.length > 0 || editing) && (
+          {((selected.images && selected.images.length > 0) || editing) && (
             <div style={{ marginBottom: 16 }}>
               <h4 style={{ marginBottom: 8 }}>Immagini</h4>
               <div className="gallery" style={{ margin: 0 }}>
-                {selected.images
+                {(selected.images || [])
                   .filter((img: any) => !draftDeletedImageIds.includes(img.id))
                   .map((img: any, i: number) => (
                     <div key={img.id} className="gallery-item" style={{ position: "relative" }}>
@@ -494,43 +491,42 @@ export default function ProductDetailPanel({
             </div>
             {editing && (
               <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                {({ taxonomy: "Taxonomy", store: "Store", project: "Project" } as Record<string, string>)["taxonomy"] &&
-                  (["taxonomy", "store", "project"] as Tag["kind"][]).map((kind) => (
-                    <div key={kind}>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          textTransform: "uppercase",
-                          color: "#94a3b8",
-                          fontWeight: 700,
-                        }}
-                      >
-                        {TAG_KIND_LABELS?.[kind] ?? kind}
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
-                        {tagsByKind[kind].map((tag) => {
-                          const checked = editingTagIds.includes(tag.id);
-                          return (
-                            <label
-                              key={tag.id}
-                              className={`tag-option ${checked ? "selected" : ""}`}
-                              style={{ cursor: "pointer" }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleEditingTag(tag.id)}
-                                style={{ marginTop: 2 }}
-                              />
-                              <div style={{ fontSize: 13, lineHeight: 1.3 }}>
-                                <div style={{ fontWeight: 600 }}>{buildTagLabel(tag, tagMap)}</div>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
+                {(["taxonomy", "store", "project"] as Tag["kind"][]).map((kind) => (
+                  <div key={kind}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        textTransform: "uppercase",
+                        color: "#94a3b8",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {kind}
                     </div>
-                  ))}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+                      {tagsByKind[kind].map((tag) => {
+                        const checked = editingTagIds.includes(tag.id);
+                        return (
+                          <label
+                            key={tag.id}
+                            className={`tag-option ${checked ? "selected" : ""}`}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleEditingTag(tag.id)}
+                              style={{ marginTop: 2 }}
+                            />
+                            <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+                              <div style={{ fontWeight: 600 }}>{buildTagLabel(tag, tagMap)}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
                 <div className="editing-panel" style={{ display: "grid", gap: 8, marginTop: 4 }}>
                   <input
                     className="input"
@@ -572,7 +568,7 @@ export default function ProductDetailPanel({
             <h4 style={{ marginBottom: 8 }}>Prezzi e link</h4>
             <ul className="detail-prices" style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
               {editing && draft
-                ? draft.prices.map((price: any, idx: number) => {
+                ? (draft.prices || []).map((price: any, idx: number) => {
                     const source = draft.source_urls[idx];
                     return (
                       <li key={price.id || `new-${idx}`} className="editing-row" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -585,7 +581,9 @@ export default function ProductDetailPanel({
                             onChange={(e) =>
                               setDraft({
                                 ...draft,
-                                prices: draft.prices.map((p: any, i: number) => (i === idx ? { ...p, amount: Number(e.target.value) || p.amount } : p)),
+                                prices: draft.prices.map((p: any, i: number) =>
+                                  i === idx ? { ...p, amount: Number(e.target.value) || p.amount } : p,
+                                ),
                               })
                             }
                           />
@@ -672,15 +670,17 @@ export default function ProductDetailPanel({
 
               {/* extra source_urls when there are more sources than prices */}
               {!editing &&
-                selected.source_urls.length > (selected.prices || []).length &&
-                selected.source_urls.slice((selected.prices || []).length).map((source: any) => (
-                  <li key={source.id}>
-                    <a href={source.url} target="_blank" rel="noreferrer">
-                      {derivePlatformLabel(undefined, source)}
-                    </a>
-                    <small>{formatDate(source.added_at)}</small>
-                  </li>
-                ))}
+                (selected.source_urls || []).length > (selected.prices || []).length &&
+                (selected.source_urls || [])
+                  .slice((selected.prices || []).length)
+                  .map((source: any) => (
+                    <li key={source.id}>
+                      <a href={source.url} target="_blank" rel="noreferrer">
+                        {derivePlatformLabel(undefined, source)}
+                      </a>
+                      <small>{formatDate(source.added_at)}</small>
+                    </li>
+                  ))}
 
               {(selected || editing) && (
                 <li className={editing ? "editing-row" : undefined}>
