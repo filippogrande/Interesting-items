@@ -5,7 +5,6 @@ import "./styles.css";
 import ProductCard from "./components/ProductCard";
 import MergeView from "./components/MergeView";
 import CreationModal from "./components/CreationModal";
-import { StatCard, Kpi } from "./components/Stats";
 import { SourcesView } from "./components/SourcesView";
 import { LightboxViewer } from "./components/LightboxViewer";
 import ProductDetailPanel from "./components/ProductDetailPanel";
@@ -42,17 +41,16 @@ function App() {
   const createBundle = () => createBundleFn(selected?.id as number);
   const createBundleFromPrice = (price: any, idx: number) => createBundleFromPriceFn(price, selected?.id as number);
 
-  // Auto-seleziona il primo prodotto al mount (comportamento originale)
+  // Auto-seleziona il primo prodotto al mount
   useEffect(() => {
-    void (async () => {
-      const list = await loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds);
-      if (list && list.length > 0) {
-        await loadDetail(list[0].id);
-      }
-    })();
     void loadTagsStats();
     void loadSourceWebsitesStats();
   }, []);
+
+  // Ricarica i prodotti quando cambiano i filtri (tag / sito / escludi)
+  useEffect(() => {
+    void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds, true);
+  }, [selectedTagId, selectedSourceSite, excludeTagIds]);
 
   const toggleProductTag = async (productId: number, tagId: number, shouldAdd: boolean) => {
     try {
@@ -80,13 +78,15 @@ function App() {
   const clearExcludeTags = () => setExcludeTagIds([]);
   const onBack = () => setView("dashboard");
   const onRefresh = () => { void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds); void loadTagsStats(); void loadSourceWebsitesStats(); };
-  const onSelectAll = () => { setSelectedTagId(""); setSelectedSourceSite(""); };
-  const onSelectSite = (siteName: string) => setSelectedSourceSite(siteName);
+  const onSelectAll = () => { setSelectedTagId(""); setSelectedSourceSite(""); setExcludeTagIds([]); };
+  const onSelectSite = (siteName: string) => { setSelectedSourceSite(siteName); setSelectedTagId(""); setView("dashboard"); };
 
   return (
     <div className="app-layout">
       <header className="app-header">
-        <h1>Interesting Items</h1>
+        <div className="header-left">
+          <h1>Interesting Items</h1>
+        </div>
         <nav className="app-nav">
           <button className={`button ${view === "dashboard" ? "primary" : "secondary"}`} onClick={() => setView("dashboard")}>Dashboard</button>
           <button className={`button ${view === "tags" ? "primary" : "secondary"}`} onClick={() => setView("tags")}>Tags</button>
@@ -102,19 +102,16 @@ function App() {
             <section className="panel list-panel">
               <div className="panel-header">
                 <h2>Prodotti ({stats.products})</h2>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input className="search" placeholder="Cerca prodotti..." value={query} onChange={(e) => setQuery(e.target.value)} />
-                  <button className="button secondary" onClick={resetFilters}>Reset filtri</button>
-                </div>
               </div>
-              <div className="stats-row">
-                <StatCard label="Prodotti" value={stats.products} onClick={() => { resetFilters(); setView("dashboard"); }} />
-                <StatCard label="Immagini" value={stats.images} />
-                <StatCard label="Prezzi" value={stats.prices} />
-                <StatCard label="Sorgenti" value={stats.sources} />
-                <StatCard label="Unisci i prodotti" value="↔" onClick={() => { resetFilters(); setMergePhase("chooser"); setView("merge"); }} />
-                <StatCard label="Tag" value={stats.tags} onClick={() => { resetFilters(); setView("tags"); void loadTagsStats(); }} />
+              <div style={{ marginBottom: 12 }}>
+                <input className="search search-full" placeholder="Cerca prodotti..." value={query} onChange={(e) => setQuery(e.target.value)} />
               </div>
+              {selectedTagId !== "" && (
+                <div className="badge muted" style={{ marginBottom: 10 }}>Filtro tag attivo</div>
+              )}
+              {selectedSourceSite && (
+                <div className="badge muted" style={{ marginBottom: 10 }}>Filtro sito: {selectedSourceSite}</div>
+              )}
               {error && <div className="error-box">{error}</div>}
               <div className="product-list">
                 {filteredProducts.map((product) => (
