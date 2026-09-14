@@ -52,18 +52,24 @@ export function useMerge({
   const [keepSourceUrlIds, setKeepSourceUrlIds] = useState<number[]>([]);
   const [mergeTagIds, setMergeTagIds] = useState<number[]>([]);
 
+  // Carica il dettaglio del candidato (colonna di destra) DIRETTAMENTE via API,
+  // senza passare per loadDetail (che aggiorna anche 'selected' condiviso con la
+  // dashboard). In questo modo selezionare un prodotto a destra NON seleziona
+  // anche lo stesso nella colonna di sinistra (bug della doppia selezione).
   const loadMergeCandidate = useCallback(
     async (productId: number) => {
       setMergeCandidateLoading(true);
       try {
-        const detail = await loadDetail(productId);
+        const detail = await fetchJson<ProductDetail>(
+          `/api/dashboard/products/${productId}`,
+        );
         setMergeCandidateDetail(detail);
         return detail;
       } finally {
         setMergeCandidateLoading(false);
       }
     },
-    [loadDetail],
+    [],
   );
 
   // Apre l'editor di confronto: inizializza il draft dai campi del prodotto
