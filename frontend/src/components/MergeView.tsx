@@ -4,6 +4,13 @@ import { formatMoney, derivePlatformLabel } from "../utils/format";
 
 const labelStyle = { fontSize: 12, textTransform: "uppercase", color: "#94a3b8", fontWeight: 700, marginBottom: 8 } as const;
 
+const scalarFields: Array<{ field: "title" | "description" | "brand" | "origin_type"; label: string }> = [
+  { field: "title", label: "Titolo" },
+  { field: "description", label: "Descrizione" },
+  { field: "brand", label: "Brand" },
+  { field: "origin_type", label: "Origine" },
+];
+
 type MergeViewProps = {
   filteredProducts: any[];
   selected: any | null;
@@ -14,18 +21,20 @@ type MergeViewProps = {
   setView: (view: "dashboard" | "tags" | "sources" | "merge") => void;
   loadDetail: (id: number) => void;
   loadMergeCandidate: (id: number) => void;
-  commitMerge: () => void;
+  mergePhase: "chooser" | "editor";
+  openMergeEditor: (main: any, candidate: any) => void;
+  goBackToChooser: () => void;
+  commitMerge: (selectedId: number) => Promise<any>;
   mergeDraft: any;
   setMergeDraft: (updater: (current: any) => any) => void;
-  mergeSelectedImageIds: number[];
-  setMergeSelectedImageIds: (updater: (current: number[]) => number[]) => void;
-  mergeSelectedPriceIds: number[];
-  setMergeSelectedPriceIds: (updater: (current: number[]) => number[]) => void;
-  mergeSelectedSourceUrlIds: number[];
-  setMergeSelectedSourceUrlIds: (updater: (current: number[]) => number[]) => void;
-  selectedTagId: number | "" | "untagged";
-  selectedSourceSite: string;
-  excludeTagIds: number[];
+  keepImageIds: number[];
+  setKeepImageIds: (updater: (current: number[]) => number[]) => void;
+  keepPriceIds: number[];
+  setKeepPriceIds: (updater: (current: number[]) => number[]) => void;
+  keepSourceUrlIds: number[];
+  setKeepSourceUrlIds: (updater: (current: number[]) => number[]) => void;
+  mergeTagIds: number[];
+  setMergeTagIds: (updater: (current: number[]) => number[]) => void;
 };
 
 function MergePinnedCard({ entity, label }: { entity: any; label: string }) {
@@ -51,83 +60,256 @@ function MergePinnedCard({ entity, label }: { entity: any; label: string }) {
   );
 }
 
-function MergeImportPanel(props: MergeViewProps) {
-  const { mergeCandidateDetail, mergeSelectedImageIds, setMergeSelectedImageIds,
-    mergeSelectedPriceIds, setMergeSelectedPriceIds, mergeSelectedSourceUrlIds,
-    setMergeSelectedSourceUrlIds } = props;
-  if (!mergeCandidateDetail) {
-    return <div className="empty-state">Seleziona il prodotto di destra per importare immagini, prezzi e link.</div>;
-  }
+function ToggleKeep({
+  id,
+  keepIds,
+  setKeepIds,
+}: {
+  id: number;
+  keepIds: number[];
+  setKeepIds: (updater: (current: number[]) => number[]) => void;
+}) {
+  const kept = keepIds.includes(id);
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      <div>
-        <div style={labelStyle}>Immagini</div>
-        <div className="gallery" style={{ margin: 0 }}>
-          {mergeCandidateDetail.images.map((image: any) => {
-            const checked = mergeSelectedImageIds.includes(image.id);
-            return (
-              <label key={`merge-image-${image.id}`} className="gallery-item" style={{ position: "relative", display: "block", cursor: "pointer", border: checked ? "2px solid rgba(96,165,250,0.9)" : undefined }}>
-                <input type="checkbox" checked={checked} onChange={() => setMergeSelectedImageIds((c) => c.includes(image.id) ? c.filter((id) => id !== image.id) : [...c, image.id])} style={{ position: "absolute", top: 8, left: 8, zIndex: 2 }} />
-                {image.url ? <img src={image.url} alt={mergeCandidateDetail.title} /> : <div className="placeholder">No image</div>}
-              </label>
-            );
-          })}
+    <button
+      className={`button tiny ${kept ? "danger" : ""}`}
+      style={{ position: "absolute", top: 8, right: 8, zIndex: 2, padding: "2px 8px", lineHeight: 1 }}
+      onClick={() =>
+        setKeepIds((c) =>
+          kept ? c.filter((x) => x !== id) : [...c, id],
+        )
+      }
+      aria-label={kept ? "Rimuovi dal merge" : "Ripristina nel merge"}
+      title={kept ? "Rimuovi dal merge" : "Ripristina nel merge"}
+    >
+      {kept ? "×" : "↺"}
+    </button>
+  );
+}
+
+// Vista selezione: due colonne con scroll interno e card pinnata in alto.
+// Ogni colonna seleziona in modo INDIPENDENTE e non può contenere il prodotto
+// selezionato sull'altra colonna (niente doppia selezione dello stesso oggetto).
+function MergeChooser({
+  filteredProducts,
+  selected,
+  mergeCandidateDetail,
+  query,
+  setQuery,
+  loadDetail,
+  loadMergeCandidate,
+}: {
+  filteredProducts: any[];
+  selected: any | null;
+  mergeCandidateDetail: any | null;
+  query: string;
+  setQuery: (value: string) => void;
+  loadDetail: (id: number) => void;
+  loadMergeCandidate: (id: number) => void;
+}) {
+  const mainList = filteredProducts.filter((p) => p.id !== mergeCandidateDetail?.id);
+  const candidateList = filteredProducts.filter((p) => p.id !== selected?.id);
+  return (
+    <>
+      <div style={{ marginBottom: 16 }}>
+        <input className="search" placeholder="Cerca prodotti da confrontare" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }}>
+        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div className="panel-header"><h3>Main</h3><span className="muted">Prodotto da mantenere</span></div>
+          <div className="product-list" style={{ marginBottom: 0, maxHeight: "calc(100vh - 220px)", overflowY: "auto", flex: 1 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
+              <MergePinnedCard entity={selected} label="principale" />
+            </div>
+            {mainList.map((product) => (
+              <ProductCard key={`merge-main-${product.id}`} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
+            ))}
+          </div>
+        </div>
+        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div className="panel-header"><h3>Da mergiare</h3><span className="muted">Prodotto che verrà eliminato</span></div>
+          <div className="product-list" style={{ marginBottom: 0, maxHeight: "calc(100vh - 220px)", overflowY: "auto", flex: 1 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
+              <MergePinnedCard entity={mergeCandidateDetail} label="da mergiare" />
+            </div>
+            {candidateList.map((product) => (
+              <ProductCard key={`merge-source-${product.id}`} product={product} active={mergeCandidateDetail?.id === product.id} onClick={() => void loadMergeCandidate(product.id)} />
+            ))}
+          </div>
         </div>
       </div>
-      <div>
-        <div style={labelStyle}>Prezzi</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {mergeCandidateDetail.prices.map((price: any) => {
-            const checked = mergeSelectedPriceIds.includes(price.id);
-            const relatedSource = mergeCandidateDetail.source_urls[0] || null;
-            return (
-              <label key={`merge-price-${price.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
-                <input type="checkbox" checked={checked} onChange={() => setMergeSelectedPriceIds((c) => c.includes(price.id) ? c.filter((id) => id !== price.id) : [...c, price.id])} style={{ marginTop: 2 }} />
-                <div style={{ display: "grid", gap: 4 }}><strong>{formatMoney(price.amount, price.currency)}</strong><span>{derivePlatformLabel(price, relatedSource)}</span></div>
-              </label>
-            );
-          })}
-        </div>
+    </>
+  );
+}
+
+// Riga per un campo singolo: confronto sinistra/destra in due colonne (click =
+// seleziona quel valore) + campo modificabile con il valore scelto.
+function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
+  const leftVal = left ? left[field] ?? "" : "";
+  const rightVal = right ? right[field] ?? "" : "";
+  const currentVal = draft[field] ?? "";
+  const pick = (v: any) => setDraft((c: any) => ({ ...c, [field]: v ?? "" }));
+  const isFromLeft = String(currentVal) === String(leftVal) && leftVal !== "";
+  const isFromRight = String(currentVal) === String(rightVal) && rightVal !== "";
+  const showText = (v: any) => (v === "" || v == null ? "—" : String(v));
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <button
+          className={`tag-option ${isFromLeft ? "selected" : ""}`}
+          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          onClick={() => pick(leftVal)}
+          title="Usa il valore a sinistra"
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>←</span>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(leftVal)}</span>
+        </button>
+        <button
+          className={`tag-option ${isFromRight ? "selected" : ""}`}
+          style={{ textAlign: "left", alignItems: "center", gap: 6 }}
+          onClick={() => pick(rightVal)}
+          title="Usa il valore a destra"
+        >
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(rightVal)}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6 }}>→</span>
+        </button>
       </div>
-      <div>
-        <div style={labelStyle}>Link</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {mergeCandidateDetail.source_urls.map((source: any) => {
-            const checked = mergeSelectedSourceUrlIds.includes(source.id);
-            return (
-              <label key={`merge-source-${source.id}`} className={`tag-option ${checked ? "selected" : ""}`}>
-                <input type="checkbox" checked={checked} onChange={() => setMergeSelectedSourceUrlIds((c) => c.includes(source.id) ? c.filter((id) => id !== source.id) : [...c, source.id])} style={{ marginTop: 2 }} />
-                <div style={{ display: "grid", gap: 4 }}><a href={source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(undefined, source)}</a><small>{source.url}</small></div>
-              </label>
-            );
-          })}
-        </div>
-      </div>
+      {field === "description" ? (
+        <textarea className="textarea" value={currentVal} onChange={(e) => pick(e.target.value)} />
+      ) : (
+        <input className="input" value={currentVal} onChange={(e) => pick(e.target.value)} />
+      )}
     </div>
   );
 }
 
-function MergeFieldRow({ field, label, selected, mergeCandidateDetail, mergeDraft, setMergeDraft }: any) {
+// Vista confronto: campi singoli (scelta + modifica) e campi multipli (unione + X).
+function MergeEditor({
+  selected,
+  mergeCandidateDetail,
+  mergeDraft,
+  setMergeDraft,
+  keepImageIds,
+  setKeepImageIds,
+  keepPriceIds,
+  setKeepPriceIds,
+  keepSourceUrlIds,
+  setKeepSourceUrlIds,
+  mergeTagIds,
+  setMergeTagIds,
+  goBackToChooser,
+  commitMerge,
+  error,
+}: any) {
+  const unionImages = [...(selected?.images || []), ...(mergeCandidateDetail?.images || [])];
+  const unionPrices = [...(selected?.prices || []), ...(mergeCandidateDetail?.prices || [])];
+  const unionSources = [...(selected?.source_urls || []), ...(mergeCandidateDetail?.source_urls || [])];
+  const unionTags = [...(selected?.tags || []), ...(mergeCandidateDetail?.tags || [])];
+  // dedup by id per evitare card doppie quando un elemento è su entrambi
+  const dedup = <T extends { id: number }>(arr: T[]): T[] => {
+    const seen = new Set<number>();
+    return arr.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+  };
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ minWidth: 110, ...labelStyle }}>{label}</span>
-        <button className="button tiny" onClick={() => setMergeDraft((c: any) => ({ ...c, [field]: selected ? (selected as any)[field] || "" : "" }))}>Sinistra</button>
-        <button className="button tiny" onClick={() => setMergeDraft((c: any) => ({ ...c, [field]: mergeCandidateDetail ? (mergeCandidateDetail as any)[field] || "" : "" }))}>Destra</button>
+    <>
+      <div className="panel-header">
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="button secondary" onClick={goBackToChooser} title="Torna alla selezione (le modifiche vengono mantenute)">← Indietro</button>
+          <h2 style={{ margin: 0 }}>Confronta i prodotti</h2>
+        </div>
+        <button className="button primary" onClick={() => void commitMerge(selected?.id)} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
       </div>
-      {field === "description" ? (
-        <textarea className="textarea" value={mergeDraft.description} onChange={(e) => setMergeDraft((c: any) => ({ ...c, description: e.target.value }))} />
-      ) : (
-        <input className="input" value={(mergeDraft as any)[field]} onChange={(e) => setMergeDraft((c: any) => ({ ...c, [field]: e.target.value }))} />
-      )}
-    </div>
+      {error && <div className="error-box">{error}</div>}
+      <div style={{ display: "grid", gap: 18 }}>
+        <div className="editing-panel">
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Campi singoli — scegli sinistra o destra, poi modifica se vuoi</h4>
+          <div style={{ display: "grid", gap: 14 }}>
+            {scalarFields.map(({ field, label }) => (
+              <MergeFieldRow key={field} field={field} label={label} left={selected} right={mergeCandidateDetail} draft={mergeDraft} setDraft={setMergeDraft} />
+            ))}
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={labelStyle}>Archiviato</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button className={`button tiny ${mergeDraft.archived === selected?.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!selected?.archived }))}>← Sinistra</button>
+                <button className={`button tiny ${mergeDraft.archived === mergeCandidateDetail?.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !!mergeCandidateDetail?.archived }))}>Destra →</button>
+                <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !c.archived }))}>{mergeDraft.archived ? "Sì" : "No"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="editing-panel">
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini — unione dei due, togli con la X</h4>
+          <div className="gallery" style={{ margin: 0 }}>
+            {dedup(unionImages).map((image) => (
+              <div key={`img-${image.id}`} className="gallery-item" style={{ position: "relative", opacity: keepImageIds.includes(image.id) ? 1 : 0.4 }}>
+                <ToggleKeep id={image.id} keepIds={keepImageIds} setKeepIds={setKeepImageIds} />
+                {image.url ? <img src={image.url} alt="" /> : <div className="placeholder">No image</div>}
+              </div>
+            ))}
+            {dedup(unionImages).length === 0 && <div className="empty-state">Nessuna immagine.</div>}
+          </div>
+        </div>
+
+        <div className="editing-panel">
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Prezzi — unione dei due, togli con la X</h4>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+            {dedup(unionPrices).map((price) => {
+              const src = unionSources.find((s) => s.id === price.id);
+              return (
+                <div key={`price-${price.id}`} className="tag-option" style={{ position: "relative", opacity: keepPriceIds.includes(price.id) ? 1 : 0.4 }}>
+                  <ToggleKeep id={price.id} keepIds={keepPriceIds} setKeepIds={setKeepPriceIds} />
+                  <div style={{ display: "grid", gap: 4, paddingRight: 18 }}>
+                    <strong>{formatMoney(price.amount, price.currency)}</strong>
+                    <span>{derivePlatformLabel(price, src)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {dedup(unionPrices).length === 0 && <div className="empty-state">Nessun prezzo.</div>}
+          </div>
+        </div>
+
+        <div className="editing-panel">
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Link — unione dei due, togli con la X</h4>
+          <div style={{ display: "grid", gap: 8 }}>
+            {dedup(unionSources).map((source) => (
+              <div key={`source-${source.id}`} className="tag-option" style={{ position: "relative", opacity: keepSourceUrlIds.includes(source.id) ? 1 : 0.4 }}>
+                <ToggleKeep id={source.id} keepIds={keepSourceUrlIds} setKeepIds={setKeepSourceUrlIds} />
+                <div style={{ display: "grid", gap: 4, paddingRight: 18 }}>
+                  <a href={source.url} target="_blank" rel="noreferrer">{derivePlatformLabel(undefined, source)}</a>
+                  <small>{source.url}</small>
+                </div>
+              </div>
+            ))}
+            {dedup(unionSources).length === 0 && <div className="empty-state">Nessun link.</div>}
+          </div>
+        </div>
+
+        <div className="editing-panel">
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Tag — unione dei due, togli con la X</h4>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {dedup(unionTags).map((tag) => (
+              <div key={`tag-${tag.id}`} className="tag-pill" style={{ position: "relative", opacity: mergeTagIds.includes(tag.id) ? 1 : 0.4, paddingRight: 26 }}>
+                <ToggleKeep id={tag.id} keepIds={mergeTagIds} setKeepIds={setMergeTagIds} />
+                <span>{tag.name}</span>
+              </div>
+            ))}
+            {dedup(unionTags).length === 0 && <div className="empty-state">Nessun tag.</div>}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
 export default function MergeView(props: MergeViewProps) {
   const {
     filteredProducts, selected, mergeCandidateDetail, query, setQuery, error, setView,
-    loadDetail, loadMergeCandidate, commitMerge, mergeDraft, setMergeDraft,
+    loadDetail, loadMergeCandidate, mergePhase, openMergeEditor, goBackToChooser, commitMerge,
+    mergeDraft, setMergeDraft, keepImageIds, setKeepImageIds, keepPriceIds, setKeepPriceIds,
+    keepSourceUrlIds, setKeepSourceUrlIds, mergeTagIds, setMergeTagIds,
   } = props;
 
   return (
@@ -136,67 +318,41 @@ export default function MergeView(props: MergeViewProps) {
         <h2>Unisci i prodotti</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="button secondary" onClick={() => setView("dashboard")}>Indietro</button>
-          <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
+          {mergePhase === "chooser" && (
+            <button className="button primary" onClick={() => openMergeEditor(selected, mergeCandidateDetail)} disabled={!selected || !mergeCandidateDetail}>Prosegui</button>
+          )}
         </div>
       </div>
-      {error && <div className="error-box">{error}</div>}
-      <div style={{ marginBottom: 16 }}>
-        <input className="search" placeholder="Cerca prodotti da confrontare" value={query} onChange={(e) => setQuery(e.target.value)} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }}>
-        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div className="panel-header"><h3>Main</h3><span className="muted">Prodotto da mantenere</span></div>
-          <div className="product-list" style={{ marginBottom: 14, maxHeight: "55vh", overflowY: "auto", flex: 1 }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
-              <MergePinnedCard entity={selected} label="principale" />
-            </div>
-            {filteredProducts
-              .filter((p) => p.id !== selected?.id)
-              .map((product) => (
-                <ProductCard key={`merge-main-${product.id}`} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
-              ))}
-          </div>
-        </div>
-        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div className="panel-header"><h3>Da mergiare</h3><span className="muted">Prodotto che verrà eliminato</span></div>
-          <div className="product-list" style={{ marginBottom: 14, maxHeight: "55vh", overflowY: "auto", flex: 1 }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 2 }}>
-              <MergePinnedCard entity={mergeCandidateDetail} label="da mergiare" />
-            </div>
-            {filteredProducts
-              .filter((p) => p.id !== selected?.id)
-              .map((product) => (
-                <ProductCard key={`merge-source-${product.id}`} product={product} active={mergeCandidateDetail?.id === product.id} onClick={() => void loadMergeCandidate(product.id)} />
-              ))}
-          </div>
-        </div>
-      </div>
-      <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Campi da salvare sul prodotto principale</h4>
-          <div style={{ display: "grid", gap: 12 }}>
-            {([["title", "Titolo"], ["description", "Descrizione"], ["brand", "Brand"], ["origin_type", "Origine"]] as Array<[string, string]>).map(([field, label]) => (
-              <MergeFieldRow key={field} field={field} label={label} selected={selected} mergeCandidateDetail={mergeCandidateDetail} mergeDraft={mergeDraft} setMergeDraft={setMergeDraft} />
-            ))}
-            <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ minWidth: 110, ...labelStyle }}>Archiviato</span>
-                <button className={`button tiny ${mergeDraft.archived ? "primary" : "secondary"}`} onClick={() => setMergeDraft((c: any) => ({ ...c, archived: !c.archived }))}>{mergeDraft.archived ? "Sì" : "No"}</button>
-                <button className="button tiny" onClick={() => setMergeDraft((c: any) => ({ ...c, archived: selected?.archived ?? false }))}>Sinistra</button>
-                <button className="button tiny" onClick={() => setMergeDraft((c: any) => ({ ...c, archived: mergeCandidateDetail?.archived ?? false }))}>Destra</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="editing-panel">
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Immagini, prezzi e link da importare dalla destra</h4>
-          <MergeImportPanel {...props} />
-        </div>
-      </div>
-      <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-        <button className="button secondary" onClick={() => setView("dashboard")}>Annulla</button>
-        <button className="button primary" onClick={() => void commitMerge()} disabled={!selected || !mergeCandidateDetail}>Salva merge</button>
-      </div>
+      {error && mergePhase === "chooser" && <div className="error-box">{error}</div>}
+      {mergePhase === "chooser" ? (
+        <MergeChooser
+          filteredProducts={filteredProducts}
+          selected={selected}
+          mergeCandidateDetail={mergeCandidateDetail}
+          query={query}
+          setQuery={setQuery}
+          loadDetail={loadDetail}
+          loadMergeCandidate={loadMergeCandidate}
+        />
+      ) : (
+        <MergeEditor
+          selected={selected}
+          mergeCandidateDetail={mergeCandidateDetail}
+          mergeDraft={mergeDraft}
+          setMergeDraft={setMergeDraft}
+          keepImageIds={keepImageIds}
+          setKeepImageIds={setKeepImageIds}
+          keepPriceIds={keepPriceIds}
+          setKeepPriceIds={setKeepPriceIds}
+          keepSourceUrlIds={keepSourceUrlIds}
+          setKeepSourceUrlIds={setKeepSourceUrlIds}
+          mergeTagIds={mergeTagIds}
+          setMergeTagIds={setMergeTagIds}
+          goBackToChooser={goBackToChooser}
+          commitMerge={commitMerge}
+          error={error}
+        />
+      )}
     </section>
   );
 }
