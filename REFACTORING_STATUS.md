@@ -1,48 +1,23 @@
-# Fix Docker Build - utils/format.ts export
+# Stato Refactoring - main.tsx
 
-## Commit bed9b2ce
+> Stato dello split del monolitico `main.tsx` (≈143KB / 3000 righe) in hook + componenti.
+> Ultimo aggiornamento: 14 settembre 2026
 
-Ripristinati gli export mancanti in `src/utils/format.ts`:
+## ✅ Completato
 
-```typescript
-export async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.json();
-}
+- `main.tsx` ridotto a **orchestratore snello** (~400 righe): compone gli hook e rende la vista attiva.
+- **Hook** (`frontend/src/hooks/`): `useProducts`, `useProductDetail`, `useMerge`, `useBundles`, `useTags`, `useSourceWebsites`.
+- **Componenti** (`frontend/src/components/`): `ProductDetailPanel`, `MergeView`, `TagsView`, `SourcesView`, `ProductCard`, `CreationModal`, `LightboxViewer`, `Stats`.
+- `ProductCard.tsx` riusabile ✓
+- `MergeView.tsx` ✓
+- `TagsView.tsx` ✓
+- `SourcesView.tsx` ✓
+- `ProductDetailPanel.tsx` ✓
+- `types.ts` ✓
+- `utils/format.ts` ✓ (export ripristinati)
 
-export function formatDate(value?: string | null) {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("it-IT", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+## 📄 Documentazione
 
-export function formatMoney(amount?: number | null, currency?: string | null) {
-  if (amount == null) return "—";
-  return new Intl.NumberFormat("it-IT", {
-    style: "currency",
-    currency: currency || "EUR",
-  }).format(amount);
-}
-
-export function labelFromHost(host: string) { ... }
-export function derivePlatformLabel(price, source) { ... }
-export function makeEmptyPrice() { ... }
-export function makeEmptySourceUrl() { ... }
-export function buildTagLabel(tag, tagMap) { ... }
-export const TAG_KIND_LABELS = { ... };
-export const TAG_KIND_ORDER = ["taxonomy", "store", "project"];
-```
-
-## Stato refactoring
-
-- ProductCard.tsx ✓
-- MergeView.tsx ✓
-- ProductList.tsx ✓
-- ProductDetail.tsx ✓
-- types.ts ✓
-- utils/format.ts ✓ (fix applicata)
+- `docs/FEATURES.md` — mappa funzionale frontend
+- `PROJECT_ARCHITECTURE.md` — struttura aggiornata con hook/componenti
+- `DEVELOPMENT_GUIDELINES.md` v1.1 — aggiunto pattern custom hooks

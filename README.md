@@ -53,6 +53,10 @@ Il bot è **già implementato**:
 - **Invia un link**: scraping + salvataggio DB
 - **Domini supportati**: vinted.it, wallapop.com, subito.it, ebay.it, aliexpress.com
 
+## Struttura Frontend
+
+React + Vite + TypeScript. `main.tsx` è un orchestratore snello; logica negli hook (`frontend/src/hooks/`) e UI nei componenti (`frontend/src/components/`). Vedi `docs/FEATURES.md` per la mappa funzionale e `PROJECT_ARCHITECTURE.md` per la struttura completa.
+
 ## Script di test
 
 Scraping senza Telegram:
@@ -66,7 +70,7 @@ python app/test_aliexpress.py
 
 - **Produzione**: Postgres 15 (Docker)
 - **Sviluppo**: SQLite (fallback)
-- **Schema**: Product, Image, Price, SourceUrl, Category
+- **Schema**: Product, Image, Price, SourceUrl, Category, Tag, Bundle
 
 ## Comandi
 

@@ -1,10 +1,10 @@
 # Interesting Items - Linee Guida per lo Sviluppo
 
-> Versione 1.0 - Paletti vincolanti. Ogni regola qui sotto è OBBLIGATORIA, non un suggerimento.
-> Ultimo aggiornamento: 19 agosto 2026
+> Versione 1.1 - Paletti vincolanti. Ogni regola qui sotto è OBBLIGATORIA, non un suggerimento.
+> Ultimo aggiornamento: 14 settembre 2026
 
 ## Indice
-1. [Regola 0 - Componenti separati (vincolante)](#regola-0)
+1. [Regola 0 - Componenti e hook separati (vincolante)](#regola-0)
 2. [Dimensioni file e funzioni](#dimensioni)
 3. [Single Source of Truth / Anti-duplicazione](#single-source)
 4. [Convenzioni Frontend (React + Vite)](#convenzioni)
@@ -17,21 +17,23 @@
 
 ---
 
-## 🔒 Regola 0 - Componenti separati (DECISIONE VINCOLANTE) {#regola-0}
+## 🔒 Regola 0 - Componenti e hook separati (DECISIONE VINCOLANTE) {#regola-0}
 
 **Niente file monolitici.** Il frontend è React + Vite + TypeScript: gli `import`/`export` ES6 sono **consentiti e obbligatori** (a differenza di Air-tycoon, qui NON vige il divieto di ES6).
 
 - ✅ Ogni vista/feature è un componente in `frontend/src/components/`.
-- ✅ Lo stato condiviso (prodotti, selezione, tag) vive in `App.tsx` e viene passato per props ai componenti.
-- ❌ MAI mettere tutta l'app in un unico `main.tsx` / `App` di migliaia di righe.
+- ✅ La logica di stato condiviso (prodotti, selezione, tag, merge, bundle) vive in **custom hooks** in `frontend/src/hooks/` (`useProducts`, `useProductDetail`, `useMerge`, `useBundles`, `useTags`, `useSourceWebsites`).
+- ✅ `main.tsx` è un **orchestratore snello**: compone gli hook e rende la vista attiva. NON contiene logica di stato.
+- ✅ Gli hook che dipendono l'uno dall'altro ricevono le funzioni come parametri (no import circolari), es. `useMerge({ loadProducts, loadDetail })`.
+- ❌ MAI rimettere tutta l'app in un unico `main.tsx` / `App` di migliaia di righe.
 
-Motivo: un file di 143KB (≈3000 righe) non è leggibile né dall'agente né in review, e le modifiche cieche su di esso producono regressioni. Lo spezzamento di `main.tsx` è il **prerequisito** di ogni refactoring futuro.
+Motivo: un file di 143KB (≈3000 righe) non è leggibile né dall'agente né in review, e le modifiche cieche su di esso producono regressioni. Lo spezzamento di `main.tsx` in hook + componenti è già fatto ed è il **prerequisito** di ogni refactoring futuro.
 
 ---
 
 ## 📏 Dimensioni file e funzioni {#dimensioni}
 
-- **File**: nessun file frontend > 500 righe. Se superi, spezza per coesione semantica (es. `Dashboard.tsx`, `MergeView.tsx`, `TagsView.tsx`, `SourcesView.tsx`).
+- **File**: nessun file frontend > 500 righe. Se superi, spezza per coesione semantica (es. `ProductDetailPanel.tsx`, `MergeView.tsx`, `TagsView.tsx`, `SourcesView.tsx`).
 - **Funzioni**: nessuna funzione > 50 righe. Se superi, estrai sottologica in funzioni ausiliarie.
 - Lo spezzamento deve essere per **coesione semantica**, NON a caso per numero di righe (2 file da 500 spezzati a caso = peggio di 1 da 1000).
 
@@ -40,14 +42,14 @@ Motivo: un file di 143KB (≈3000 righe) non è leggibile né dall'agente né in
 ## 🔁 Single Source of Truth / Anti-duplicazione {#single-source}
 
 - La card prodotto (`product-card`) deve esistere in **un solo** componente `<ProductCard>` e essere riusata sia nella lista (`ProductList`) sia nella pagina Unisci (`MergeView`). Non ridisegnare a mano la stessa card in due posti.
-- La logica di fetch dei prodotti (`loadProducts`) vive in un solo punto; i componenti la invocano, non la duplicano.
+- La logica di fetch dei prodotti (`loadProducts`) vive in un solo punto (l'hook `useProducts`); i componenti la invocano, non la duplicano.
 - Niente costanti/URL/label replicati: se servono in più punti, vai in un modulo condiviso.
 
 ---
 
 ## ⚛️ Convenzioni Frontend (React + Vite) {#convenzioni}
 
-- TypeScript strict: i tipi (`ProductSummary`, `ProductDetail`, `Tag`, ...) vivono in cima al modulo che li usa o in un `types.ts` condiviso.
+- TypeScript strict: i tipi (`ProductSummary`, `ProductDetail`, `Tag`, ...) vivono in un `types.ts` condiviso.
 - Props tipizzate (`props: any` solo dov'è inevitabile, mai come default).
 - Stile: preferire `styles.css` con classi semantiche; gli `style={{...}}` inline sono ammessi per valori dinamici (es. altezze calcolate) ma non per layout statico ripetuto.
 - Niente `console.log` di debug in produzione.
@@ -88,8 +90,9 @@ Motivo: un file di 143KB (≈3000 righe) non è leggibile né dall'agente né in
 
 ## 📚 Documentazione {#doc}
 
-- `PROJECT_ARCHITECTURE.md`: struttura reale del repo (backend, frontend, DB, deploy).
+- `PROJECT_ARCHITECTURE.md`: struttura reale del repo (backend, frontend, hook, componenti, DB, deploy).
 - `DEVELOPMENT_GUIDELINES.md`: questo file (paletti vincolanti).
+- `docs/FEATURES.md`: mappa funzionale macro/sotto-funzioni del frontend.
 - `PAGES_GUIDE.md`: non presente (le viste sono poche e coperte da architettura + guidelines); crearlo solo se le viste diventano complesse.
 - Il backlog di feature/bug vive su **TickTick** (progetto "Interesting items"), non nei `.md`.
 
@@ -98,5 +101,5 @@ Motivo: un file di 143KB (≈3000 righe) non è leggibile né dall'agente né in
 ## 🔍 Verifica Coerenza & Aggiornamento Doc {#coerenza}
 
 - Prima di ogni PR che tocca il frontend, verificare di non introdurre file > 500 righe o duplicazione di componenti.
-- Se una regola qui sopra non è rispettata nel codice esistente, aprire task di cleanup su TickTick (es. "Refactoring: spezzare main.tsx") anziché perpetuarla.
+- Se una regola qui sopra non è rispettata nel codice esistente, aprire task di cleanup su TickTick anziché perpetuarla.
 - Aggiornare questo file quando cambiano le convenzioni (bump versione + data in apertura).
