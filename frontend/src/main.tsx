@@ -26,8 +26,6 @@ function App() {
     title: "", description: "", brand: "", origin_type: "", archived: false,
     prices: [], source_urls: [], images: [], tags: [],
   });
-  const [bundleCreatorOpen, setBundleCreatorOpen] = useState(false);
-  const [bundleDraft, setBundleDraft] = useState({ title: "", amount: "", currency: "EUR", sourceUrl: "", notes: "", productIds: [] as number[] });
 
   const { products, setProducts, loadingList, error, setError, query, setQuery, selectedTagId, setSelectedTagId, selectedSourceSite, setSelectedSourceSite, excludeTagIds, setExcludeTagIds, excludeTagsExpanded, setExcludeTagsExpanded, loadProducts, resetFilters, filteredProducts, stats } = useProducts();
 
@@ -39,7 +37,10 @@ function App() {
 
   const { mergeCandidateDetail, mergeCandidateLoading, mergePhase, setMergePhase, mergeDraft: mergeDraftState, setMergeDraft: setMergeDraftState, mergeSelectedImageIds, setMergeSelectedImageIds, mergeSelectedPriceIds, setMergeSelectedPriceIds, mergeSelectedSourceUrlIds, setMergeSelectedSourceUrlIds, buildMergeDraft, loadMergeCandidate, openMergeEditor, commitMerge } = useMerge({ loadProducts: loadProducts as any, loadDetail });
 
-  const { bundleCreatorOpen: bundleOpen, setBundleCreatorOpen: setBundleOpen, bundleDraft: bundleState, setBundleDraft: setBundleState, createBundle, createBundleFromPrice } = useBundles({ loadDetail, loadProducts: loadProducts as any });
+  const { bundleCreatorOpen, setBundleCreatorOpen, bundleDraft, setBundleDraft, createBundle: createBundleFn, createBundleFromPrice: createBundleFromPriceFn } = useBundles({ loadDetail, loadProducts: loadProducts as any });
+
+  const createBundle = () => createBundleFn(selected?.id as number);
+  const createBundleFromPrice = (price: any, idx: number) => createBundleFromPriceFn(price, selected?.id as number);
 
   useEffect(() => {
     void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds);
@@ -121,7 +122,7 @@ function App() {
               newTagName={newTagName} setNewTagName={setNewTagName} newTagKind={newTagKind} setNewTagKind={setNewTagKind} newTagParentId={newTagParentId} setNewTagParentId={setNewTagParentId}
               draftPendingUploads={draftPendingUploads} setDraftPendingUploads={setDraftPendingUploads} draftDeletedImageIds={draftDeletedImageIds} setDraftDeletedImageIds={setDraftDeletedImageIds}
               imageUploadRef={imageUploadRef} error={error} setError={setError} products={products} tags={tags} tagMap={tagMap} tagsByKind={tagsByKind}
-              bundleDraft={bundleState} setBundleDraft={setBundleState} bundleCreatorOpen={bundleOpen} setBundleCreatorOpen={setBundleOpen}
+              bundleDraft={bundleDraft} setBundleDraft={setBundleDraft} bundleCreatorOpen={bundleCreatorOpen} setBundleCreatorOpen={setBundleCreatorOpen}
               loadDetail={loadDetail} loadProducts={loadProducts as any} duplicateSelectedProduct={duplicateSelectedProduct}
               deleteProductImage={deleteProductImage} uploadProductImage={uploadProductImage} appendEditablePair={appendEditablePair}
               createBundle={createBundle} createBundleFromPrice={createBundleFromPrice} toggleProductTag={toggleProductTag}
