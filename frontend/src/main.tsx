@@ -5,7 +5,6 @@ import "./styles.css";
 import ProductCard from "./components/ProductCard";
 import MergeView from "./components/MergeView";
 import CreationModal from "./components/CreationModal";
-import { StatCard, Kpi } from "./components/Stats";
 import { SourcesView } from "./components/SourcesView";
 import { LightboxViewer } from "./components/LightboxViewer";
 import ProductDetailPanel from "./components/ProductDetailPanel";
@@ -42,17 +41,15 @@ function App() {
   const createBundle = () => createBundleFn(selected?.id as number);
   const createBundleFromPrice = (price: any, idx: number) => createBundleFromPriceFn(price, selected?.id as number);
 
-  // Auto-seleziona il primo prodotto al mount (comportamento originale)
   useEffect(() => {
-    void (async () => {
-      const list = await loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds);
-      if (list && list.length > 0) {
-        await loadDetail(list[0].id);
-      }
-    })();
     void loadTagsStats();
     void loadSourceWebsitesStats();
   }, []);
+
+  // Ricarica i prodotti quando cambiano i filtri (tag / sito / escludi)
+  useEffect(() => {
+    void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds, true);
+  }, [selectedTagId, selectedSourceSite, excludeTagIds]);
 
   const toggleProductTag = async (productId: number, tagId: number, shouldAdd: boolean) => {
     try {
@@ -80,13 +77,55 @@ function App() {
   const clearExcludeTags = () => setExcludeTagIds([]);
   const onBack = () => setView("dashboard");
   const onRefresh = () => { void loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds); void loadTagsStats(); void loadSourceWebsitesStats(); };
-  const onSelectAll = () => { setSelectedTagId(""); setSelectedSourceSite(""); };
-  const onSelectSite = (siteName: string) => setSelectedSourceSite(siteName);
+  const onSelectAll = () => { setSelectedTagId(""); setSelectedSourceSite(""); setExcludeTagIds([]); };
+  const onSelectSite = (siteName: string) => { setSelectedSourceSite(siteName); setSelectedTagId(""); };
+
+  // Props del pannello dettaglio, riusati in tutte le viste lista+dettaglio
+  const detailPanel = {
+    selected, setSelected, loadingDetail, editing, setEditing, draft, setDraft,
+    editingTagIds, setEditingTagIds, newTagName, setNewTagName, newTagKind, setNewTagKind,
+    newTagParentId, setNewTagParentId, draftPendingUploads, setDraftPendingUploads,
+    draftDeletedImageIds, setDraftDeletedImageIds, imageUploadRef, error, setError,
+    products, tags, tagMap, tagsByKind, bundleDraft, setBundleDraft,
+    bundleCreatorOpen, setBundleCreatorOpen, loadDetail, loadProducts: loadProducts as any,
+    duplicateSelectedProduct, deleteProductImage, uploadProductImage, appendEditablePair,
+    createBundle, createBundleFromPrice, toggleProductTag, getAncestorIds, createTag,
+    setViewerIndex, setViewerOpen, formatDate, formatMoney, derivePlatformLabel,
+    makeEmptyPrice, makeEmptySourceUrl, TAG_KIND_ORDER, TAG_KIND_LABELS,
+    selectedTagId, selectedSourceSite, excludeTagIds,
+  };
+
+  // Vista lista+dettaglio riusabile (dashboard / tags / sources)
+  const renderListDetail = (extraHeader?: React.ReactNode) => (
+    <div className="layout">
+      <section className="panel list-panel">
+        <div className="panel-header">
+          <h2>Prodotti ({stats.products})</h2>
+        </div>
+        {extraHeader}
+        <div style={{ marginBottom: 12 }}>
+          <input className="search search-full" placeholder="Cerca prodotti..." value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {selectedTagId !== "" && <div className="badge muted" style={{ marginBottom: 10 }}>Filtro tag attivo</div>}
+        {selectedSourceSite && <div className="badge muted" style={{ marginBottom: 10 }}>Filtro sito: {selectedSourceSite}</div>}
+        {error && <div className="error-box">{error}</div>}
+        <div className="product-list">
+          {filteredProducts.map((product) => (
+            <ProductCard key={product.id} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
+          ))}
+          {!loadingList && filteredProducts.length === 0 && <div className="empty-state">Nessun prodotto trovato.</div>}
+        </div>
+      </section>
+      <ProductDetailPanel {...detailPanel} />
+    </div>
+  );
 
   return (
     <div className="app-layout">
       <header className="app-header">
-        <h1>Interesting Items</h1>
+        <div className="header-left">
+          <h1>Interesting Items</h1>
+        </div>
         <nav className="app-nav">
           <button className={`button ${view === "dashboard" ? "primary" : "secondary"}`} onClick={() => setView("dashboard")}>Dashboard</button>
           <button className={`button ${view === "tags" ? "primary" : "secondary"}`} onClick={() => setView("tags")}>Tags</button>
@@ -97,53 +136,9 @@ function App() {
       </header>
 
       <main className="app-main">
-        {view === "dashboard" && (
-          <div className="layout">
-            <section className="panel list-panel">
-              <div className="panel-header">
-                <h2>Prodotti ({stats.products})</h2>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input className="search" placeholder="Cerca prodotti..." value={query} onChange={(e) => setQuery(e.target.value)} />
-                  <button className="button secondary" onClick={resetFilters}>Reset filtri</button>
-                </div>
-              </div>
-              <div className="stats-row">
-                <StatCard label="Prodotti" value={stats.products} onClick={() => { resetFilters(); setView("dashboard"); }} />
-                <StatCard label="Immagini" value={stats.images} />
-                <StatCard label="Prezzi" value={stats.prices} />
-                <StatCard label="Sorgenti" value={stats.sources} />
-                <StatCard label="Unisci i prodotti" value="↔" onClick={() => { resetFilters(); setMergePhase("chooser"); setView("merge"); }} />
-                <StatCard label="Tag" value={stats.tags} onClick={() => { resetFilters(); setView("tags"); void loadTagsStats(); }} />
-              </div>
-              {error && <div className="error-box">{error}</div>}
-              <div className="product-list">
-                {filteredProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} active={selected?.id === product.id} onClick={() => void loadDetail(product.id)} />
-                ))}
-                {!loadingList && filteredProducts.length === 0 && <div className="empty-state">Nessun prodotto trovato.</div>}
-              </div>
-            </section>
-            <ProductDetailPanel
-              selected={selected} setSelected={setSelected} loadingDetail={loadingDetail}
-              editing={editing} setEditing={setEditing} draft={draft} setDraft={setDraft}
-              editingTagIds={editingTagIds} setEditingTagIds={setEditingTagIds}
-              newTagName={newTagName} setNewTagName={setNewTagName} newTagKind={newTagKind} setNewTagKind={setNewTagKind} newTagParentId={newTagParentId} setNewTagParentId={setNewTagParentId}
-              draftPendingUploads={draftPendingUploads} setDraftPendingUploads={setDraftPendingUploads} draftDeletedImageIds={draftDeletedImageIds} setDraftDeletedImageIds={setDraftDeletedImageIds}
-              imageUploadRef={imageUploadRef} error={error} setError={setError} products={products} tags={tags} tagMap={tagMap} tagsByKind={tagsByKind}
-              bundleDraft={bundleDraft} setBundleDraft={setBundleDraft} bundleCreatorOpen={bundleCreatorOpen} setBundleCreatorOpen={setBundleCreatorOpen}
-              loadDetail={loadDetail} loadProducts={loadProducts as any} duplicateSelectedProduct={duplicateSelectedProduct}
-              deleteProductImage={deleteProductImage} uploadProductImage={uploadProductImage} appendEditablePair={appendEditablePair}
-              createBundle={createBundle} createBundleFromPrice={createBundleFromPrice} toggleProductTag={toggleProductTag}
-              getAncestorIds={getAncestorIds} createTag={createTag} setViewerIndex={setViewerIndex} setViewerOpen={setViewerOpen}
-              formatDate={formatDate} formatMoney={formatMoney} derivePlatformLabel={derivePlatformLabel}
-              makeEmptyPrice={makeEmptyPrice} makeEmptySourceUrl={makeEmptySourceUrl}
-              TAG_KIND_ORDER={TAG_KIND_ORDER} TAG_KIND_LABELS={TAG_KIND_LABELS}
-              selectedTagId={selectedTagId} selectedSourceSite={selectedSourceSite} excludeTagIds={excludeTagIds}
-            />
-          </div>
-        )}
-        {view === "tags" && (<TagsView error={error} statsProducts={stats.products} tagsStats={tagsStats} selectedTagId={selectedTagId} setSelectedTagId={setSelectedTagId} selectedSourceSite={selectedSourceSite} setSelectedSourceSite={setSelectedSourceSite} query={query} setQuery={setQuery} TAG_KIND_ORDER={TAG_KIND_ORDER} TAG_KIND_LABELS={TAG_KIND_LABELS} tagsByKind={tagsByKind} excludeTagsExpanded={excludeTagsExpanded} setExcludeTagsExpanded={setExcludeTagsExpanded} excludeTagIds={excludeTagIds} toggleExcludeTag={toggleExcludeTag} clearExcludeTags={clearExcludeTags} tagMap={tagMap} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} onBack={onBack} onRefresh={onRefresh} />)}
-        {view === "sources" && (<SourcesView sourceWebsitesStats={sourceWebsitesStats} totalProducts={stats.products} error={error} onBack={onBack} onRefresh={onRefresh} onSelectAll={onSelectAll} onSelectSite={onSelectSite} />)}
+        {view === "dashboard" && renderListDetail()}
+        {view === "tags" && (<TagsView error={error} statsProducts={stats.products} tagsStats={tagsStats} selectedTagId={selectedTagId} setSelectedTagId={setSelectedTagId} selectedSourceSite={selectedSourceSite} setSelectedSourceSite={setSelectedSourceSite} query={query} setQuery={setQuery} TAG_KIND_ORDER={TAG_KIND_ORDER} TAG_KIND_LABELS={TAG_KIND_LABELS} tagsByKind={tagsByKind} excludeTagsExpanded={excludeTagsExpanded} setExcludeTagsExpanded={setExcludeTagsExpanded} excludeTagIds={excludeTagIds} toggleExcludeTag={toggleExcludeTag} clearExcludeTags={clearExcludeTags} tagMap={tagMap} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} onBack={onBack} onRefresh={onRefresh} detailPanel={detailPanel} />)}
+        {view === "sources" && (<SourcesView sourceWebsitesStats={sourceWebsitesStats} totalProducts={stats.products} error={error} onBack={onBack} onRefresh={onRefresh} onSelectAll={onSelectAll} onSelectSite={onSelectSite} selectedSourceSite={selectedSourceSite} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} query={query} setQuery={setQuery} detailPanel={detailPanel} />)}
         {view === "merge" && (<MergeView filteredProducts={filteredProducts} selected={selected} mergeCandidateDetail={mergeCandidateDetail} query={query} setQuery={setQuery} error={error} setView={setView} loadDetail={loadDetail} loadMergeCandidate={loadMergeCandidate} commitMerge={commitMerge} mergeDraft={mergeDraftState} setMergeDraft={setMergeDraftState} mergeSelectedImageIds={mergeSelectedImageIds} setMergeSelectedImageIds={setMergeSelectedImageIds} mergeSelectedPriceIds={mergeSelectedPriceIds} setMergeSelectedPriceIds={setMergeSelectedPriceIds} mergeSelectedSourceUrlIds={mergeSelectedSourceUrlIds} setMergeSelectedSourceUrlIds={setMergeSelectedSourceUrlIds} selectedTagId={selectedTagId} selectedSourceSite={selectedSourceSite} excludeTagIds={excludeTagIds} />)}
       </main>
 
