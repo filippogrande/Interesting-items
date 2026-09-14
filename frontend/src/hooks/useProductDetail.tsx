@@ -98,17 +98,11 @@ export function useProductDetail() {
   }, [editing, draft, selected]);
 
   const duplicateSelectedProduct = useCallback(async () => {
-    if (!selected) return;
-    const payload = {
-      title: `${selected.title} (copy)`,
-      description: selected.description,
-      brand: selected.brand,
-      origin_type: selected.origin_type,
-    };
-    const resp = await fetch(`/api/products`, {
+    if (!selected) return null;
+    const resp = await fetch(`/api/products/${selected.id}/duplicate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({}),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
