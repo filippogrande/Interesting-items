@@ -1,10 +1,16 @@
 import React from "react";
-import ProductCard from "./ProductCard";
+import ProductDetailPanel from "./ProductDetailPanel";
 
 type TagKind = "taxonomy" | "store" | "project";
 
 type Tag = { id: number; name: string; kind: TagKind };
 type TagStats = { tags: Array<Tag & { count: number }>; untagged_count: number } | null;
+type ProductSummary = {
+  id: number; title: string; description: string; origin_type?: string | null;
+  scraped_at?: string | null; created_at?: string | null; images_count: number;
+  prices_count: number; bundles_count?: number; cover_image_url?: string | null;
+  latest_price?: number | null; latest_currency?: string | null;
+};
 
 type Props = {
   error: string | null;
@@ -36,18 +42,6 @@ type Props = {
   detailPanel: Record<string, any>;
 };
 
-type ProductSummary = {
-  id: number; title: string; description: string; origin_type?: string | null;
-  scraped_at?: string | null; created_at?: string | null; images_count: number;
-  prices_count: number; bundles_count?: number; cover_image_url?: string | null;
-  latest_price?: number | null; latest_currency?: string | null;
-};
-
-function ProductDetailPanelLazy(props: Record<string, any>) {
-  const ProductDetailPanel = (props as any).ProductDetailPanel;
-  return <ProductDetailPanel {...props} />;
-}
-
 export default function TagsView(props: Props) {
   const {
     error, statsProducts, tagsStats, selectedTagId, setSelectedTagId,
@@ -57,8 +51,6 @@ export default function TagsView(props: Props) {
     tagMap, filteredProducts, selected, loadDetail, loadingList,
     formatDate, formatMoney, onBack, onRefresh, detailPanel,
   } = props;
-
-  const ProductDetailPanel = detailPanel.ProductDetailPanel;
 
   return (
     <div className="layout">
@@ -73,7 +65,7 @@ export default function TagsView(props: Props) {
 
         {error && <div className="error-box">{error}</div>}
 
-        {/* Selezione tag: card cliccabili, testo leggibile su sfondo chiaro */}
+        {/* Selezione tag: card cliccabili, testo leggibile */}
         <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -210,7 +202,7 @@ export default function TagsView(props: Props) {
           {!loadingList && filteredProducts.length === 0 && <div className="empty-state">Nessun prodotto trovato.</div>}
         </div>
       </section>
-      <ProductDetailPanel {...(detailPanel as any)} />
+      <ProductDetailPanel {...detailPanel} />
     </div>
   );
 }
