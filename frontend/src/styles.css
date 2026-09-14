@@ -1,3 +1,46 @@
+/* Header app: titolo a sinistra, nav a destra, stessa riga */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 12px 4px;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-nav .button {
+  padding: 9px 14px;
+  font-size: 0.9rem;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+
+/* Contenitore principale sotto l'header */
+.app-main {
+  padding: 0 4px;
+}
+
+/* Ricerca a tutta larghezza della colonna lista */
+.search-full {
+  width: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
