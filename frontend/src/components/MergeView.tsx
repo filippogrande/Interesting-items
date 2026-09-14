@@ -155,50 +155,6 @@ function buildPairs(product: any) {
   return pairs;
 }
 
-// Riga per un campo singolo: valore sinistra | bottoni centrali | valore destra,
-// + campo modificabile con il valore scelto. Testo sempre bianco.
-function MergeFieldRow({ field, label, left, right, draft, setDraft }: any) {
-  const leftVal = left ? left[field] ?? "" : "";
-  const rightVal = right ? right[field] ?? "" : "";
-  const currentVal = draft[field] ?? "";
-  const pick = (v: any) => setDraft((c: any) => ({ ...c, [field]: v ?? "" }));
-  const isFromLeft = String(currentVal) === String(leftVal) && leftVal !== "";
-  const isFromRight = String(currentVal) === String(rightVal) && rightVal !== "";
-  const showText = (v: any) => (v === "" || v == null ? "—" : String(v));
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 64px 1fr", gap: 8, alignItems: "center" }}>
-        <button
-          className={`tag-option ${isFromLeft ? "selected" : ""}`}
-          style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
-          onClick={() => pick(leftVal)}
-          title="Usa il valore a sinistra"
-        >
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(leftVal)}</span>
-        </button>
-        <div style={{ display: "grid", gap: 6 }}>
-          <button className={`button tiny ${isFromLeft ? "primary" : "secondary"}`} onClick={() => pick(leftVal)} title="Sinistra">←</button>
-          <button className={`button tiny ${isFromRight ? "primary" : "secondary"}`} onClick={() => pick(rightVal)} title="Destra">→</button>
-        </div>
-        <button
-          className={`tag-option ${isFromRight ? "selected" : ""}`}
-          style={{ textAlign: "left", alignItems: "center", gap: 6, color: "#fff" }}
-          onClick={() => pick(rightVal)}
-          title="Usa il valore a destra"
-        >
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showText(rightVal)}</span>
-        </button>
-      </div>
-      {field === "description" ? (
-        <textarea className="textarea" value={currentVal} onChange={(e) => pick(e.target.value)} />
-      ) : (
-        <input className="input" value={currentVal} onChange={(e) => pick(e.target.value)} />
-      )}
-    </div>
-  );
-}
-
 // Vista confronto: due metà sempre. Campi singoli affiancati con bottoni centrali;
 // immagini/tag unione con X; prezzi+link come coppie legate (X rimuove entrambi).
 function MergeEditor({
