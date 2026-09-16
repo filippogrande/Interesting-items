@@ -2,6 +2,9 @@
 
 Nota architetturale: NON scrive sul database. Persiste i dati tramite le API
 del BE (vedi bot/app/api_client.py).
+
+Ritorna uno stato (OK / NOT_FOUND / ERROR) così il bot può dire all'utente se
+l'annuncio non esiste più invece di mostrare un errore generico.
 """
 import os
 import re
@@ -15,6 +18,21 @@ from xml.etree.ElementTree import Element, SubElement, ElementTree
 import traceback
 
 from .. import api_client
+from . import OK, NOT_FOUND, ERROR
+
+# Vinted risponde 404 (a volte 410) per annunci rimossi o venduti.
+NOT_FOUND_HTTP_STATUSES = {404, 410}
+
+# Fallback: a volte la pagina "non trovato" arriva con HTTP 200.
+NOT_FOUND_MARKERS = (
+    "non trouv",
+    "introuvable",
+    "pagina non trovata",
+    "página no encontrada",
+    "not found",
+    "nicht gefunden",
+    "nie znaleziono",
+)
 
 
 def get_item_id_from_url(url: str) -> str:
@@ -34,17 +52,26 @@ def log_vinted(msg: str):
 
 
 def download_rendered_html(url: str, html_path: str):
+    """Scarica l'HTML renderizzato della pagina annuncio.
+
+    Ritorna ``(status, http_status)`` con status in {OK, NOT_FOUND, ERROR}.
+    """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         log_vinted('Playwright non installato. Installa con: pip install playwright')
-        return False
+        return (ERROR, None)
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             # NON usare 'networkidle': Vinted ricarica in continuo e va in timeout.
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            response = page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            http_status = response.status if response is not None else None
+            if http_status in NOT_FOUND_HTTP_STATUSES:
+                log_vinted(f'HTTP {http_status}: annuncio non più disponibile ({url})')
+                browser.close()
+                return (NOT_FOUND, http_status)
             try:
                 page.wait_for_selector("h1", timeout=15000)
             except Exception:
@@ -54,13 +81,42 @@ def download_rendered_html(url: str, html_path: str):
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(html)
             browser.close()
-        return True
+        return (OK, http_status)
     except Exception as e:
         log_vinted(f'Errore Playwright: {e} - ' + traceback.format_exc())
-        return False
+        return (ERROR, None)
+
+
+def extract_seller_info(soup) -> dict:
+    """Estrae il profilo del venditore dalla pagina annuncio.
+
+    Su Vinted il venditore è linkato come ``/member/<id>-<username>``.
+    """
+    info = {}
+    try:
+        link = soup.find('a', href=re.compile(r'/member/'))
+        if not link:
+            return info
+        href = (link.get('href') or '').strip()
+        if href.startswith('/'):
+            href = 'https://www.vinted.it' + href
+        if href:
+            info['profile_url'] = href
+        match = re.search(r'/member/(\d+)-([^/?#]+)', href)
+        if match:
+            info['user_id'] = match.group(1)
+            info['username'] = match.group(2)
+        else:
+            name = link.get_text(strip=True)
+            if name:
+                info['username'] = name
+    except Exception as e:
+        log_vinted(f'Errore estrazione profilo venditore: {e}')
+    return info
 
 
 def scrape_vinted(url: str):
+    """Scrapa un annuncio Vinted. Ritorna OK / NOT_FOUND / ERROR."""
     log_vinted(f'Inizio scraping per URL: {url}')
     item_id = get_item_id_from_url(url)
     html_path = f'tmp/item_{item_id}_rendered.html'
@@ -72,10 +128,9 @@ def scrape_vinted(url: str):
     os.makedirs(images_dir, exist_ok=True)
 
     log_vinted(f'Scarico HTML renderizzato da {url}...')
-    ok = download_rendered_html(url, html_path)
-    if not ok:
-        log_vinted('Errore nel download HTML.')
-        return False
+    status, http_status = download_rendered_html(url, html_path)
+    if status != OK:
+        return status
 
     title = ''
     description = ''
@@ -89,7 +144,7 @@ def scrape_vinted(url: str):
             html = f.read()
     except Exception as e:
         log_vinted(f'Errore apertura HTML: {html_path} ({e})')
-        return False
+        return ERROR
 
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -125,6 +180,10 @@ def scrape_vinted(url: str):
             sp = soup.find('span', string=re.compile(r'Ottim|Buon|Nuov|Danneggi', re.I))
             if sp:
                 condition = sp.get_text(strip=True)
+
+    seller_info = extract_seller_info(soup)
+    if seller_info:
+        log_vinted(f"Venditore: {seller_info.get('username') or '?'} ({seller_info.get('profile_url')})")
 
     img_urls = []
     for img in soup.find_all('img'):
@@ -215,6 +274,10 @@ def scrape_vinted(url: str):
         SubElement(root, 'description').text = description or ''
         SubElement(root, 'price').text = str(price_val)
         SubElement(root, 'condition').text = condition or ''
+        seller_el = SubElement(root, 'seller')
+        SubElement(seller_el, 'username').text = seller_info.get('username') or ''
+        SubElement(seller_el, 'user_id').text = seller_info.get('user_id') or ''
+        SubElement(seller_el, 'profile_url').text = seller_info.get('profile_url') or ''
         imgs_el = SubElement(root, 'images')
         for meta in images_meta:
             i_el = SubElement(imgs_el, 'image')
@@ -227,10 +290,14 @@ def scrape_vinted(url: str):
     except Exception as e:
         log_vinted(f'Errore salvataggio XML: {e}')
 
-    # Se non abbiamo un titolo la pagina non e' stata renderizzata: errore.
+    # Nessun titolo: distinguere "annuncio non più disponibile" da un errore vero.
     if not title:
+        lowered = (text or '').lower()
+        if any(marker in lowered for marker in NOT_FOUND_MARKERS):
+            log_vinted('Pagina di annuncio non trovato: rimosso o venduto.')
+            return NOT_FOUND
         log_vinted('Titolo non trovato: pagina non renderizzata correttamente.')
-        return False
+        return ERROR
 
     try:
         product_data = {
@@ -238,7 +305,11 @@ def scrape_vinted(url: str):
             "description": description,
             "brand": None,
             "origin_type": "vinted",
-            "product_metadata": None,
+            "product_metadata": (
+                json.dumps({"seller": seller_info}, ensure_ascii=False)
+                if seller_info
+                else None
+            ),
             "category_id": None,
             "archived": False,
         }
@@ -246,7 +317,7 @@ def scrape_vinted(url: str):
         product_id = api_client.create_product(product_data)
         if product_id is None:
             log_vinted('Errore API creazione prodotto')
-            return False
+            return ERROR
 
         for fname, img_url in zip(image_filenames, image_links):
             image_data = {
@@ -272,6 +343,6 @@ def scrape_vinted(url: str):
         log_vinted(f'Dati salvati. Prodotto id={product_id}, immagini={len(image_filenames)}')
     except Exception as e:
         log_vinted(f'Errore chiamate API: {e}')
-        return False
+        return ERROR
 
-    return True
+    return OK
