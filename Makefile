@@ -1,14 +1,14 @@
-.PHONY: dev-backend dev-frontend start-worker start-bot
+.PHONY: dev-backend dev-frontend start-bot
 
+# BE: FastAPI + modelli DB
 dev-backend:
 	python -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
-	uvicorn backend.app.main:app --reload
+	uvicorn app.server:app --reload --app-dir backend
 
+# FE: React + Vite
 dev-frontend:
 	cd frontend && npm install && npm run dev
 
-start-worker:
-	rq worker --with-scheduler default
-
+# BOT: Telegram + scraper (parla al BE via HTTP)
 start-bot:
-	python -m backend.app.bot
+	cd bot && python -m app.main

@@ -1,51 +1,68 @@
 # Architettura Interesting Items
 
 > Mappa della struttura reale del progetto. Coerente con `DEVELOPMENT_GUIDELINES.md`.
-> Ultimo aggiornamento: 14 settembre 2026
+> Ultimo aggiornamento: 16 settembre 2026
 
-## Struttura del Progetto
+## Componenti (3, separati)
 
-### Root (config & deploy)
-- `docker-compose.yml` — container bot/app/redis/frontend/db
-- `frontend/Dockerfile` — build frontend (Node 22, Vite 8)
-- `.env` / `.env.example` — variabili ambiente (incl. `BASE_URL` del bot)
+Il progetto è diviso in tre componenti indipendenti, con codice, immagine Docker e
+container propri. Regola d'oro: **il BE è l'unico proprietario del database**; FE e bot
+parlano al BE **solo via HTTP**.
 
-### Backend (`backend/`)
-- `app/api.py` — FastAPI: endpoint prodotti/tag/source-url/bundle/merge, paginazione `limit`/`offset`
-- `app/bot.py` — bot Telegram: normalizza URL, check `SourceUrl` (anti-dup), accoda
-- `app/vinted.py` — scrape Vinted con Playwright (`wait_until="domcontentloaded"`)
-- `storage/db.py` — modelli SQLModel (Product, Image, Price, SourceUrl, Tag, Bundle, ...)
-- `init_db()` usa `create_all` (NON altera tabelle esistenti)
+```
+frontend/   → FE  (React + Vite + nginx)        immagine: ...:frontend-latest
+backend/    → BE  (FastAPI + modelli DB)        immagine: ...:backend-latest
+bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
+```
+
+### FE — `frontend/`
+- `src/main.tsx` — **orchestratore**: compone gli hook e rende la vista attiva (dashboard/tags/sources/merge).
+- `src/hooks/` — logica di stato: `useProducts`, `useProductDetail`, `useMerge`, `useBundles`, `useTags`, `useSourceWebsites`.
+- `src/components/` — UI: `ProductDetailPanel`, `MergeView`, `TagsView`, `SourcesView`, `ProductCard`, `CreationModal`, `LightboxViewer`, `Stats`.
+- `src/utils/format.ts` — helper (`fetchJson`, `formatDate`, `formatMoney`, `derivePlatformLabel`, ...).
+- `src/types.ts` — tipi condivisi. `src/styles.css` — stile globale.
+- Parla al BE via HTTP. Build servito dal container `frontend` (nginx, porta 3002).
+
+### BE — `backend/`
+- `app/api.py` — FastAPI: endpoint prodotti/tag/source-url/bundle/merge, paginazione `limit`/`offset`.
+- `app/api_lookup.py` — endpoint aggiuntivi montati sull'app (`/api/sourceurls/lookup`, usato dal bot per l'anti-duplicato).
+- `app/server.py` — **entrypoint uvicorn** (`uvicorn app.server:app`): importa `api` e i moduli che registrano endpoint extra.
+- `storage/db.py` — modelli SQLModel (Product, Image, Price, SourceUrl, Tag, Bundle, ...) e `init_db()`.
+- `start.sh` — aspetta il DB, `init_db()`, avvia **solo** uvicorn. (Il bot non è più qui: vive in `bot/`.)
+- `init_db()` usa `create_all` (NON altera tabelle esistenti).
+
+### BOT — `bot/`
+- `app/main.py` — bot Telegram: normalizza URL, **chiede al BE** se il prodotto esiste già (anti-duplicato via HTTP), accoda su Redis.
+- `app/api_client.py` — **unico punto** di contatto col BE (nessun accesso diretto al DB).
+- `app/scrapers/vinted.py` — scrape Vinted con Playwright (`wait_until="domcontentloaded"`); persiste via API.
+- `app/scrapers/aliexpress.py` — scrape AliExpress; persiste via API.
+- `start.sh` — avvia solo il bot (`python -m app.main`).
+- Coda persistenti su Redis (`scrape_queue:<sito>`), una per sito.
 
 ### Database
-- Postgres (container `db`). Tabelle principali: `product`, `image`, `price`, `sourceurl` (colonne: id, product_id, url, domain, added_at), `tag`, `product_tag_link`, `bundle`, `bundle_product_link`.
+- Postgres (container `db`). Tabelle: `product`, `image`, `price`, `sourceurl`, `tag`, `product_tag_link`, `bundle`, `bundle_product_link`.
 - Nessun sistema di migrazioni automatico: lo schema si evolve via nuova versione dell'app.
-
-### Frontend (`frontend/`)
-- `src/main.tsx` — **orchestratore**: `App()` compone gli hook e rende la vista in base alla tab attiva (dashboard/tags/sources/merge). File snello (~400 righe).
-- `src/hooks/` — logica di stato estratta: `useProducts`, `useProductDetail`, `useMerge`, `useBundles`, `useTags`, `useSourceWebsites`.
-- `src/components/` — componenti UI: `ProductDetailPanel`, `MergeView`, `TagsView`, `SourcesView`, `ProductCard`, `CreationModal`, `LightboxViewer`, `Stats` (StatCard/Kpi).
-- `src/utils/format.ts` — helper formattazione (`fetchJson`, `formatDate`, `formatMoney`, `derivePlatformLabel`, `makeEmptyPrice`, ...).
-- `src/types.ts` — tipi condivisi (`ProductSummary`, `ProductDetail`, `Tag`, `SourceWebsite`).
-- `src/styles.css` — stile globale (classi `.panel`, `.product-card`, `.kpi`, `.error-box`, ...).
-- Vite + React + TypeScript; build servito dal container `frontend` (nginx).
+- **Solo il BE tocca il DB.**
 
 ## Flusso Architetturale
 
-1. **Avvio**: `docker compose up -d` → bot + app (FastAPI :8004) + Postgres + Redis + frontend (:3002 nginx)
-2. **Scrape**: bot riceve URL → normalizza → check `SourceUrl` nel DB → se nuovo, accoda → `vinted.py` (Playwright) → `POST /api/products` + immagini + prezzi + sourceurl
-3. **UI**: frontend chiama `/api/dashboard/products` (paginato) → lista; click → `/api/dashboard/products/{id}` → dettaglio
-4. **Merge**: pagina Unisci → selezione main + da-mergiare → `POST /api/products/merge`
+1. **Avvio**: `docker compose up -d` → `app` (BE :8004) + `bot` + `frontend` (:3002) + Postgres + Redis.
+2. **Scrape**: l'utente manda un link al bot → il bot normalizza → `GET /api/sourceurls/lookup` sul BE (anti-duplicato) → se nuovo, accoda su Redis → `vinted.py` (Playwright) → `POST /api/products` + immagini + prezzi + sourceurl.
+3. **UI**: frontend chiama `/api/dashboard/products` (paginato) → lista; click → `/api/dashboard/products/{id}` → dettaglio.
+4. **Merge**: pagina Unisci → selezione main + da-mergiare → `POST /api/products/merge`.
 
 ## Deploy
 - URL UI: `http://10.0.0.5:3002` (il bot costruisce i link interni con `BASE_URL` dal `.env`; deve puntare a `10.0.0.5:3002`, non `localhost`).
+- Il bot raggiunge il BE con `API_BASE=http://app:8004` (rete compose).
+- CI (`.github/workflows/docker-build-push.yml`) costruisce **3 immagini** su push in `main`.
 - Modifiche via branch → PR → merge in `main` → `git pull` + `docker compose up -d` nella cartella `/mnt/applicazioni/yml/docker/interesting-items`.
+- Volumi condivisi fra BE e bot: `images/`, `tmp/`, `storage_data/` (il BE serve `/media` le immagini scritte dal bot).
 
 ## Aree da sistemare (paletti da DEVELOPMENT_GUIDELINES)
 
 - 🟡 Paginazione: assicurarsi di non usare cap fissi (`limit: 100`) in `loadProducts`; preferire paginazione/scroll infinito.
-- 🟡 Card prodotto: `ProductCard` riusabile estratto e usato sia nella lista sia nel merge (verificare che non ci siano copie a mano).
-- 🟢 Documentare gli endpoint in modo strutturato (openapi o `.md` API dedicato; da valutare).
+- 🟡 Script di sviluppo scraper rimasti in `backend/app/` (`test_vinted.py`, `test_aliexpress.py`, `run_single_scrape.py`, `run_extract_aliexpress_variants.py`): spostarli in `bot/` o eliminarli.
+- 🟡 Documentare gli endpoint in modo strutturato (openapi o `.md` API dedicato; da valutare).
 
 ## Backlog
-Il backlog di feature e task di refactor/cleanup è su **TickTick** (progetto "Interesting items"). Qui solo i paletti riassunti da `DEVELOPMENT_GUIDELINES.md`.
+Il backlog vive su **Vikunja** (progetto "Interesting items"), etichettato per componente (`FE` / `BE` / `BOT`).

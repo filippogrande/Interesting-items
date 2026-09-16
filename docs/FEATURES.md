@@ -1,7 +1,7 @@
 # Interesting Items - Mappa Funzionale (FEATURES)
 
-> Mappa macro-funzionale e sotto-funzioni del frontend. Aggiornata a seguito dello split di `main.tsx` in hooks + componenti (PR refactor).
-> Ultimo aggiornamento: 14 settembre 2026
+> Mappa macro-funzionale e sotto-funzioni del frontend. Aggiornata a seguito dello split di `main.tsx` in hooks + componenti e del redesign della vista Merge.
+> Ultimo aggiornamento: 16 settembre 2026
 
 ## 1. Dashboard (vista principale)
 
@@ -49,12 +49,21 @@
 
 ## 6. Vista Merge (`MergeView`)
 
-- **Due elenchi** — prodotto principale (da mantenere) e prodotto da mergiare
-- **Selezione** — clic per scegliere main e candidato
-- **Campi da salvare** — titolo/descrizione/brand/origine/archiviato, con bottoni "Sinistra"/"Destra"
-- **Importa risorse** — immagini, prezzi, link dal prodotto di destra (checkbox multipli)
-- **Commit merge** — salva il merge, aggiorna lista+dettaglio
-- **Annulla** — torna alla dashboard
+La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`).
+
+### 6.1 Selezione (`chooser`)
+- **Due colonne** — `Main` (prodotto da mantenere) e `Da mergiare` (prodotto che verrà eliminato)
+- **Selezione indipendente** — ogni colonna esclude il prodotto scelto nell'altra: non è possibile selezionare lo stesso oggetto su entrambi i lati
+- **Scroll interno + card pinnata in alto** — il prodotto selezionato resta visibile mentre si scorre la lista (`position: sticky` + `overflowY: auto`)
+- **Prosegui** — abilitato solo quando entrambi i prodotti sono scelti; apre la fase di confronto
+
+### 6.2 Confronto (`editor`)
+- **Due metà fisse** — a sinistra i valori del `Main`, a destra quelli `Da mergiare`
+- **Campi singoli** — Titolo, Descrizione, Brand, Origine, Archiviato: clic sul valore per sceglierlo (evidenziato), il valore scelto è poi modificabile nel pannello "Valori finali"
+- **Campi multipli** — Immagini, Prezzi+link, Tag: **unione automatica dei due prodotti**, con X per rimuovere (↺ per ripristinare)
+- **Prezzi e link sono coppie legate** — una X rimuove entrambi (sono accoppiati per indice nel modello)
+- **← Indietro** (in alto a sinistra) — torna alla selezione **conservando** selezioni e modifiche
+- **Salva merge** (in alto a destra) — invia al BE le liste finali (`keep_image_ids`, `keep_price_ids`, `keep_source_url_ids`, `tag_ids`) + i valori dei campi singoli
 
 ## 7. Creazione Prodotto (`CreationModal`)
 
@@ -73,7 +82,7 @@
 
 ### Componenti (`frontend/src/components/`)
 - `ProductDetailPanel.tsx` — pannello dettaglio + edit mode (sezione più complessa)
-- `MergeView.tsx` — vista Unisci prodotti
+- `MergeView.tsx` — vista Unisci prodotti (fasi `chooser` e `editor`)
 - `TagsView.tsx` — vista Tag
 - `SourcesView.tsx` — vista Sorgenti
 - `ProductCard.tsx` — card prodotto riusabile (lista + merge)
@@ -84,10 +93,20 @@
 ### Hook (`frontend/src/hooks/`)
 - `useProducts` — lista, loading, error, ricerca, filtri tag/sito/escludi, stats
 - `useProductDetail` — selezione, draft, editing, viewer, immagini, duplica
-- `useMerge` — stato merge, candidato, draft, commit
+- `useMerge` — fase merge (`chooser`/`editor`), candidato, draft campi singoli, liste keep (immagini/prezzi/link/tag), commit
 - `useBundles` — stato bundle, crea bundle
 - `useTags` — lista tag, crea tag, stats, gerarchia
 - `useSourceWebsites` — stats siti
 
-### Ormestratore
+### Orchestratore
 - `main.tsx` — `App()` compone gli hook e rende le viste in base alla tab attiva
+
+---
+
+## Altri componenti del progetto
+
+Questa mappa copre il **FE**. Gli altri due componenti sono:
+- **BE** (`backend/`) — API FastAPI + modelli DB
+- **BOT** (`bot/`) — bot Telegram + scraper (Vinted, AliExpress)
+
+Vedi `PROJECT_ARCHITECTURE.md` per la struttura completa.

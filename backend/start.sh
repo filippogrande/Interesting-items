@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export REDIS_URL=${REDIS_URL:-redis://redis:6379}
-
 echo "Attendo che il DB sia raggiungibile..."
 DB_WAIT_MAX_ATTEMPTS=${DB_WAIT_MAX_ATTEMPTS:-60}
 DB_WAIT_SLEEP_SECONDS=${DB_WAIT_SLEEP_SECONDS:-2}
@@ -46,23 +44,7 @@ init_db()
 print('DB inizializzato')
 PY
 
+# Il BE serve SOLO l'API. Il bot Telegram e gli scraper vivono nel componente
+# separato `bot/` (immagine e container propri).
 echo "Avvio uvicorn (API) sulla porta 8004..."
-uvicorn app.api:app --host 0.0.0.0 --port 8004 &
-UVICORN_PID=$!
-
-echo "Avvio RQ worker..."
-rq worker -u ${REDIS_URL} default &
-RQ_PID=$!
-
-echo "Avvio Telegram bot in foreground..."
-# Foreground process keeps the container alive; il bot è eseguito come modulo package
-if [ -z "${BOT_TOKEN:-}" ]; then
-	echo "BOT_TOKEN non impostato — avvio API e worker solamente. Container rimane attivo."
-	# Mantieni il container in esecuzione
-	tail -f /dev/null
-else
-	python -m app.bot || true
-	echo "Bot terminato, arresto processi figli..."
-	kill $UVICORN_PID $RQ_PID || true
-	wait
-fi
+exec uvicorn app.server:app --host 0.0.0.0 --port 8004

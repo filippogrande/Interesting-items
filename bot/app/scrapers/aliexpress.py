@@ -1,14 +1,20 @@
+"""Scraper AliExpress.
+
+Nota architetturale: NON scrive sul database. Persiste i dati tramite le API
+del BE (vedi bot/app/api_client.py).
+"""
 import os
 import time
 import re
 import requests
-import sys
 import hashlib
 import json
 import ast
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from datetime import datetime
+
+from .. import api_client
 
 
 def log_aliexpress(msg: str):
@@ -21,7 +27,6 @@ def log_aliexpress(msg: str):
 
 
 def get_product_id_from_url(url: str) -> str:
-    # prova vari pattern comuni di AliExpress
     m = re.search(r'/item/(\d+)\.html', url)
     if m:
         return m.group(1)
@@ -38,13 +43,11 @@ def download_rendered_html(url: str, html_path: str) -> bool:
     except ImportError:
         log_aliexpress('Playwright non installato. Installa con: pip install playwright')
         return False
-    # tentativi di retry perché alcune pagine possono impiegare tempo o rifiutare connessioni
     retries = 3
     timeout = 120000  # 120s
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-            # crea un context con user-agent per ridurre il rischio di blocco
             context = browser.new_context(user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36')
             page = context.new_page()
             last_err = None
@@ -101,12 +104,10 @@ def scrape_aliexpress(url: str):
         log_aliexpress(f'Errore apertura HTML: {html_path} ({e})')
         return False
 
-    # processa l'HTML salvato (parsing, estrazione immagini, salvataggio XML/YAML)
     return process_saved_html(html, pid, url, images_dir, xml_path)
 
 
 def _find_balanced_json(text, start_pos):
-    # trova JSON bilanciato iniziando dal primo '{' a partire da start_pos
     i = text.find('{', start_pos)
     if i == -1:
         return None
@@ -122,11 +123,7 @@ def _find_balanced_json(text, start_pos):
 
 
 def extract_variants_from_html(html: str):
-    """Estrae strutture SKU/variant da script embedded (es. window.runParams, skuBase, skuMap).
-    Restituisce un dict con 'attributes' e 'variants' se trovati, altrimenti {}.
-    """
     res = {}
-    # cerca script che contengono parole chiave note
     patterns = ['window.runParams', 'skuBase', 'skuMap', 'SKU_BASE', 'productDetail']
     candidates = []
     for m in re.finditer(r'<script[^>]*>(.*?)</script>', html, flags=re.DOTALL | re.IGNORECASE):
@@ -137,28 +134,22 @@ def extract_variants_from_html(html: str):
 
     parsed = None
     for txt in candidates:
-        # prova prima window.runParams
         m = re.search(r'window\.runParams\s*=\s*', txt)
         try_json = None
         if m:
             try_json = _find_balanced_json(txt, m.end())
         if not try_json:
-            # cerca presenza diretta di "skuMap" nel testo e estrai il primo JSON bilanciato
             m2 = re.search(r'(\{[^\{]*"skuMap".*)', txt, flags=re.DOTALL)
             if m2:
                 try_json = _find_balanced_json(txt, m2.start())
         if not try_json:
-            # fallback: cerca la prima occorrenza di '{' e prova a bilanciare
             try_json = _find_balanced_json(txt, 0)
         if not try_json:
             continue
-        # pulizia: rimuovi trailing semicolon
         jtext = try_json.strip()
-        # prova a caricare JSON
         try:
             parsed = json.loads(jtext)
         except Exception:
-            # prova ast.literal_eval come fallback (gestisce single-quoted JS-ish)
             try:
                 parsed = ast.literal_eval(jtext)
             except Exception:
@@ -169,28 +160,25 @@ def extract_variants_from_html(html: str):
     if not parsed:
         return {}
 
-    # naviga parsed per trovare skuBase / skuMap
+    def find_key(d, key):
+        if isinstance(d, dict):
+            if key in d:
+                return d[key]
+            for v in d.values():
+                r = find_key(v, key)
+                if r is not None:
+                    return r
+        return None
+
     sku_base = None
     sku_map = None
-    # molte pagine hanno struttura {data: {...}} oppure {product: {...}}
     if isinstance(parsed, dict):
-        # ricerca ricorsiva
-        def find_key(d, key):
-            if isinstance(d, dict):
-                if key in d:
-                    return d[key]
-                for v in d.values():
-                    r = find_key(v, key)
-                    if r is not None:
-                        return r
-            return None
         sku_base = find_key(parsed, 'skuBase') or find_key(parsed, 'SKU_BASE')
         sku_map = find_key(parsed, 'skuMap') or find_key(parsed, 'sku_map')
 
     attributes = []
     variants = []
     if sku_base and isinstance(sku_base, dict):
-        # estrai props/labels se presenti
         props = sku_base.get('skuProps') or sku_base.get('props') or sku_base.get('specs')
         if isinstance(props, list):
             for p in props:
@@ -204,12 +192,10 @@ def extract_variants_from_html(html: str):
         for sku_key, sku_info in sku_map.items():
             variant = {'sku_key': sku_key}
             if isinstance(sku_info, dict):
-                # prezzo e disponibilità possono trovarsi in diverse chiavi
                 variant['price'] = sku_info.get('price') or sku_info.get('priceVal') or sku_info.get('actSkuPrice') or None
                 variant['stock'] = sku_info.get('stock') or sku_info.get('quantity') or sku_info.get('inventory') or None
             variants.append(variant)
 
-    # se non abbiamo skuMap ma parsed contiene 'sku' list
     if not variants:
         possible = []
         if isinstance(parsed, dict):
@@ -222,8 +208,7 @@ def extract_variants_from_html(html: str):
             for it in possible:
                 variants.append({'sku_key': it.get('skuId') or it.get('id') or None, 'price': it.get('price')})
 
-    res = {'attributes': attributes, 'variants': variants}
-    return res
+    return {'attributes': attributes, 'variants': variants}
 
 
 def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path: str):
@@ -231,7 +216,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
         if not alt:
             return False
         a = alt.strip().lower()
-        # frasi esplicite da escludere
         category_terms = [
             'tutte le categorie', 'illuminazione', 'bricolage', 'intimo', 'abbigliamento', 'auto', 'motori',
             'gioielli', 'orologi', 'sport', 'intrattenimento', 'elettrodomestici', 'casa', 'giardino',
@@ -241,7 +225,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
         for t in category_terms:
             if t in a:
                 return True
-        # molte icone di categoria sono molto corte (<= 30) e non descrittive
         if len(a) <= 30 and (' ' in a or len(a.split()) <= 3):
             return True
         return False
@@ -251,7 +234,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
         title = ''
         description = ''
         price_val = 0.0
-
         img_candidates = []
 
         ogt = soup.find('meta', property='og:title')
@@ -315,17 +297,14 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
             if any(d in netloc for d in ['alicdn.com', 'alicdn', 'aliexpress-media.com', 'ae-pic-a1.aliexpress-media.com', 'ae-pic']):
                 alt = (img.get('alt') or '').strip()
                 cls = ' '.join(img.get('class') or [])
-                # parent classes may indicate thumbnail/gallery vs header/icon
                 parent_cls = ''
                 try:
                     if img.parent and getattr(img.parent, 'get'):
                         parent_cls = ' '.join(img.parent.get('class') or [])
                 except Exception:
                     parent_cls = ''
-                # width/height attributes when available
                 width = img.get('width') or img.get('data-width') or img.get('data-w')
                 height = img.get('height') or img.get('data-height') or img.get('data-h')
-                # escludi icone/categories non rilevanti basandoci su alt già ora
                 try:
                     if _is_category_alt(alt):
                         continue
@@ -338,7 +317,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
         image_alts = []
         image_meta_list = []
         for entry in img_candidates:
-            # entry: (src, alt, class, parent_class, width, height)
             if not entry:
                 continue
             if len(entry) == 2:
@@ -372,27 +350,23 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
         MIN_BYTES_PREFILTER = 4000
         for idx, img_url in enumerate(image_links, start=1):
             try:
-                # quick normalizzazione per rimuovere suffissi strani (es. "q75.jpg_.avif")
                 img_url = re.sub(r'\.?q\d+\.jpg', '.jpg', img_url)
                 img_url = img_url.replace('_.avif', '')
                 img_url = re.sub(r'(\.jpg)+', '.jpg', img_url)
                 if img_url.startswith('//'):
                     img_url = 'https:' + img_url
-                # filtro rapido prima di scaricare: url pattern, token classname/alt, dimensioni dichiarate
                 low_url = img_url.lower()
                 meta = image_meta_list[idx-1] if idx-1 < len(image_meta_list) else {}
                 low_alt = (meta.get('alt') or '').lower()
                 low_cls = (meta.get('class') or '').lower()
                 low_parent = (meta.get('parent_class') or '').lower()
-                # skip immagini con pattern noti che danno 404 o sono icone
                 if '.png.png' in low_url or '.svg' in low_url:
                     log_aliexpress(f'Skipping by url pattern: {img_url}')
                     continue
                 skip_tokens = ['icon', 'logo', 'thumb', 'badge', 'flag', 'avatar', 'seller', 'store', 'category', 'sprite', 'spacer', 'arrow', 'rating', 'star', 'shipping', 'verified', 'payment', 'paypal', 'alipay']
                 if any(t in low_url for t in skip_tokens) or any(t in low_alt for t in skip_tokens) or any(t in low_cls for t in skip_tokens) or any(t in low_parent for t in skip_tokens):
-                    log_aliexpress(f'Skipping by token ({img_url}) alt/class parent: {low_alt} / {low_cls} / {low_parent}')
+                    log_aliexpress(f'Skipping by token ({img_url})')
                     continue
-                # dimensione dichiarata sugli attributi
                 try:
                     w = int(meta.get('width')) if meta.get('width') and str(meta.get('width')).isdigit() else None
                     h = int(meta.get('height')) if meta.get('height') and str(meta.get('height')).isdigit() else None
@@ -402,7 +376,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
                 except Exception:
                     pass
 
-                # prova HEAD per valutare Content-Length e Content-Type (evita download di icone)
                 try:
                     head = requests.head(img_url, timeout=8, headers=headers, allow_redirects=True)
                     if head.status_code == 200:
@@ -414,13 +387,9 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
                         if clen and clen < MIN_BYTES_PREFILTER:
                             log_aliexpress(f'Skipping by Content-Length {clen} < {MIN_BYTES_PREFILTER}: {img_url}')
                             continue
-                    else:
-                        # se HEAD ritorna non 200, falliamo silenziosamente al GET
-                        head = None
                 except Exception:
-                    head = None
+                    pass
 
-                # se arriviamo qui, scarichiamo l'immagine
                 resp = requests.get(img_url, stream=True, timeout=20, headers=headers)
                 if resp.status_code == 200:
                     hasher = hashlib.sha1()
@@ -459,46 +428,34 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
             except Exception as e:
                 log_aliexpress(f'Errore download immagine {img_url}: {e}')
 
+        def _decide_keep(meta: dict) -> bool:
+            alt = (meta.get('alt') or '').strip().lower()
+            fname = (meta.get('filename') or '').lower()
+            url_l = (meta.get('url') or '').lower()
+            size = int(meta.get('size_bytes') or 0)
+            ext = os.path.splitext(fname)[1].lower()
+            try:
+                if _is_category_alt(alt):
+                    return False
+            except Exception:
+                pass
+            small_tokens = ['27x27', '48x48', '24x48', '144x144', '30x30', '154x64', '232x98', '702x72', '45x60']
+            for t in small_tokens:
+                if t in fname or t in url_l:
+                    return False
+            if ext == '.png' and size < 3000:
+                return False
+            if size < 3000:
+                return False
+            return True
+
+        for m in images_meta:
+            m['tenere'] = _decide_keep(m)
+
         try:
-            # determina automaticamente quali immagini tenere basandosi su heuristics
-            def _decide_keep(meta: dict) -> bool:
-                alt = (meta.get('alt') or '').strip().lower()
-                fname = (meta.get('filename') or '').lower()
-                url_l = (meta.get('url') or '').lower()
-                size = int(meta.get('size_bytes') or 0)
-                ext = os.path.splitext(fname)[1].lower()
-
-                # esclusione per alt di categoria
-                try:
-                    if _is_category_alt(alt):
-                        return False
-                except Exception:
-                    pass
-
-                # escludi immagini con indicatori di icona/piccole dimensioni nel nome/url
-                small_tokens = ['27x27', '48x48', '24x48', '144x144', '30x30', '154x64', '232x98', '702x72', '45x60']
-                for t in small_tokens:
-                    if t in fname or t in url_l:
-                        return False
-
-                # preferisci JPEG maggiori: escludi PNG piccoli (icone)
-                if ext == '.png' and size < 3000:
-                    return False
-
-                # filtro basato sulla dimensione (soglia in byte)
-                if size < 3000:
-                    return False
-
-                return True
-
-            for m in images_meta:
-                m['tenere'] = _decide_keep(m)
-
             mapping_path = os.path.join(images_dir, 'images_info.json')
             with open(mapping_path, 'w', encoding='utf-8') as mf:
                 json.dump(images_meta, mf, ensure_ascii=False, indent=2)
-
-            # salva anche il mapping filtrato (solo tenere=true)
             filtered = [m for m in images_meta if m.get('tenere')]
             filtered_path = os.path.join(images_dir, 'images_info.filtered.json')
             with open(filtered_path, 'w', encoding='utf-8') as ff:
@@ -516,7 +473,6 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
             SubElement(root, 'description').text = description or ''
             SubElement(root, 'price').text = str(price_val)
             imgs_el = SubElement(root, 'images')
-            # nell'XML includiamo solo le immagini selezionate (tenere=true)
             for meta in [m for m in images_meta if m.get('tenere')]:
                 i_el = SubElement(imgs_el, 'image')
                 SubElement(i_el, 'filename').text = meta.get('filename')
@@ -525,37 +481,43 @@ def process_saved_html(html: str, pid: str, url: str, images_dir: str, xml_path:
                 SubElement(i_el, 'size_bytes').text = str(meta.get('size_bytes'))
                 SubElement(i_el, 'alt').text = meta.get('alt') or ''
             ElementTree(root).write(xml_path, encoding='utf-8', xml_declaration=True)
-            # Prova a salvare anche nel DB (se disponibile)
-            try:
-                from storage import db as storage_db
-                # Assicura che le tabelle esistano
-                storage_db.init_db()
-                prod = storage_db.Product(
-                    title=title or '',
-                    description=description or '',
-                    brand=None,
-                    origin_type='aliexpress',
-                    product_metadata=json.dumps({}),
-                    scraped_at=datetime.utcnow()
-                )
-                images_objs = []
+
+            # Persistenza via API del BE (nessun accesso diretto al DB)
+            product_id = api_client.create_product({
+                'title': title or '',
+                'description': description or '',
+                'brand': None,
+                'origin_type': 'aliexpress',
+                'product_metadata': json.dumps({}),
+                'archived': False,
+            })
+            if product_id is None:
+                log_aliexpress('Errore API creazione prodotto AliExpress')
+            else:
                 for m in [mm for mm in images_meta if mm.get('tenere')]:
-                    img = storage_db.Image(
-                        filename=m.get('filename'),
-                        width=None,
-                        height=None,
-                        size_bytes=m.get('size_bytes'),
-                        checksum=m.get('checksum')
-                    )
-                    images_objs.append(img)
-                prices = [storage_db.Price(amount=float(price_val or 0.0), currency='EUR', platform='aliexpress')]
-                srcs = [storage_db.SourceUrl(url=url, domain=urlparse(url).netloc if url else None)]
-                pid_db = storage_db.add_product(prod, images=images_objs, prices=prices, source_urls=srcs)
-                log_aliexpress(f'Inserito prodotto in DB id={pid_db}')
-            except Exception as e:
-                log_aliexpress(f'Errore salvataggio DB: {e}')
+                    api_client.add_image({
+                        'product_id': product_id,
+                        'filename': m.get('filename'),
+                        'width': None,
+                        'height': None,
+                        'size_bytes': m.get('size_bytes'),
+                        'checksum': m.get('checksum'),
+                    })
+                api_client.add_price({
+                    'product_id': product_id,
+                    'amount': float(price_val or 0.0),
+                    'currency': 'EUR',
+                    'platform': 'aliexpress',
+                    'sold': False,
+                })
+                api_client.add_source_url({
+                    'product_id': product_id,
+                    'url': url,
+                    'domain': urlparse(url).netloc if url else None,
+                })
+                log_aliexpress(f'Prodotto AliExpress salvato via API id={product_id}')
         except Exception as e:
-            log_aliexpress(f'Errore salvataggio XML: {e}')
+            log_aliexpress(f'Errore salvataggio XML/API: {e}')
 
         log_aliexpress(f'Dati AliExpress salvati localmente per pid={pid}, immagini={len(images_meta)}')
 

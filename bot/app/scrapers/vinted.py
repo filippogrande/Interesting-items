@@ -1,17 +1,20 @@
+"""Scraper Vinted.
+
+Nota architetturale: NON scrive sul database. Persiste i dati tramite le API
+del BE (vedi bot/app/api_client.py).
+"""
 import os
 import re
 import requests
 import hashlib
 import json
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 import traceback
 
-from storage import db as storage_db
-
-API_BASE = os.getenv("API_BASE", "http://localhost:8004")
+from .. import api_client
 
 
 def get_item_id_from_url(url: str) -> str:
@@ -57,14 +60,6 @@ def download_rendered_html(url: str, html_path: str):
         return False
 
 
-def _create_product(product_data: dict):
-    resp = requests.post(f"{API_BASE}/api/products", json=product_data, timeout=30)
-    if resp.status_code != 201:
-        log_vinted(f'Errore API creazione prodotto: {resp.status_code} {resp.text}')
-        return None
-    return resp.json()["id"]
-
-
 def scrape_vinted(url: str):
     log_vinted(f'Inizio scraping per URL: {url}')
     item_id = get_item_id_from_url(url)
@@ -75,11 +70,6 @@ def scrape_vinted(url: str):
     os.makedirs('tmp', exist_ok=True)
     os.makedirs('storage', exist_ok=True)
     os.makedirs(images_dir, exist_ok=True)
-
-    try:
-        storage_db.init_db()
-    except Exception:
-        pass
 
     log_vinted(f'Scarico HTML renderizzato da {url}...')
     ok = download_rendered_html(url, html_path)
@@ -125,13 +115,10 @@ def scrape_vinted(url: str):
     if price_match:
         price_val = float(price_match.group(1).replace(',', '.'))
 
-    cond = None
     cond_label = soup.find(string=re.compile(r'Condizion|Condizioni', re.I))
     if cond_label:
-        next_span = None
         parent = cond_label.parent
-        if parent:
-            next_span = parent.find_next('span')
+        next_span = parent.find_next('span') if parent else None
         if next_span:
             condition = next_span.get_text(strip=True)
         else:
@@ -247,7 +234,6 @@ def scrape_vinted(url: str):
 
     try:
         product_data = {
-            "url": url,
             "title": title,
             "description": description,
             "brand": None,
@@ -257,8 +243,9 @@ def scrape_vinted(url: str):
             "archived": False,
         }
 
-        product_id = _create_product(product_data)
+        product_id = api_client.create_product(product_data)
         if product_id is None:
+            log_vinted('Errore API creazione prodotto')
             return False
 
         for fname, img_url in zip(image_filenames, image_links):
@@ -268,22 +255,19 @@ def scrape_vinted(url: str):
                 "width": None, "height": None,
                 "size_bytes": None, "checksum": None
             }
-            img_resp = requests.post(f"{API_BASE}/api/images", json=image_data, timeout=30)
-            if img_resp.status_code != 201:
-                log_vinted(f'Errore API creazione immagine: {img_resp.status_code} {img_resp.text}')
+            if not api_client.add_image(image_data):
+                log_vinted(f'Errore API creazione immagine per {img_url}')
 
         price_data = {
             "product_id": product_id, "amount": price_val, "currency": "EUR",
             "price_category": None, "condition": None, "platform": None, "sold": False
         }
-        price_resp = requests.post(f"{API_BASE}/api/prices", json=price_data, timeout=30)
-        if price_resp.status_code != 201:
-            log_vinted(f'Errore API creazione prezzo: {price_resp.status_code} {price_resp.text}')
+        if not api_client.add_price(price_data):
+            log_vinted('Errore API creazione prezzo')
 
         sourceurl_data = {"product_id": product_id, "url": url, "domain": None}
-        sourceurl_resp = requests.post(f"{API_BASE}/api/sourceurls", json=sourceurl_data, timeout=30)
-        if sourceurl_resp.status_code != 201:
-            log_vinted(f'Errore API creazione sourceurl: {sourceurl_resp.status_code} {sourceurl_resp.text}')
+        if not api_client.add_source_url(sourceurl_data):
+            log_vinted('Errore API creazione sourceurl')
 
         log_vinted(f'Dati salvati. Prodotto id={product_id}, immagini={len(image_filenames)}')
     except Exception as e:

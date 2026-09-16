@@ -1,65 +1,61 @@
-Tech Stack — Progetto Web + Telegram Bot (definizione)
+Tech Stack — Product Scraper (Web + Telegram Bot)
 
-Scopo: documento breve e pratico che specifica lo stack tecnologico scelto e le scelte operative per lo sviluppo iniziale (MVP).
+> Aggiornato 16 settembre 2026 allo **stato reale** del progetto.
+> Il progetto è diviso in 3 componenti separati: FE (`frontend/`), BE (`backend/`), BOT (`bot/`).
+> La sezione "Non implementato" elenca le idee del design iniziale mai realizzate.
 
-1. Scelte principali
+1. Componenti
 
-- Backend: Python 3.11
-  - Framework: FastAPI (async, OpenAPI integrato)
-  - ORM: SQLAlchemy / SQLModel (compatibile con Alembic per migration)
-  - Web server: Uvicorn (dev) / Gunicorn + Uvicorn workers (prod)
-- Bot Telegram: aiogram (async) — polling in sviluppo, pronto a switchare a webhook in produzione
-- Queue / background jobs: Redis + RQ (semplice, sufficiente per carico basso)
-- Scraping: requests + BeautifulSoup (prima); Playwright escluso per ora (opzionale in futuro)
-- DB: PostgreSQL (prod), SQLite per sviluppo locale
-- Storage immagini: S3-compatible (produzione) / filesystem locale per sviluppo
+- **BE** (`backend/`) — Python + FastAPI + SQLModel. **Unico proprietario del database.** Serve l'API REST.
+- **BOT** (`bot/`) — Python + aiogram (polling) + Playwright/BeautifulSoup. **Non accede al DB**: parla al BE via HTTP (`bot/app/api_client.py`).
+- **FE** (`frontend/`) — React + Vite + TypeScript, build servita da nginx.
 
-2. Frontend
+2. Scelte principali (BE)
 
-- Framework: React
-- Tooling: Vite + TypeScript
-- Local storage: IndexedDB via `idb` (wrapper) per sincronizzazione e UX offline
+- Framework: FastAPI (OpenAPI/Swagger integrato su `/docs`)
+- ORM: SQLModel (su SQLAlchemy) — compatibile Alembic, ma **le migration non sono in uso**
+- Web server: uvicorn
+- Entrypoint: `uvicorn app.server:app` (assemblaggio in `backend/app/server.py`)
 
-3. API & contratto
+3. Scraping (BOT)
 
-- REST API con FastAPI + OpenAPI auto-generated
-- API auth: opzionale (API-key/JWT) — non abilitata per MVP Web UI non protetta
+- **Playwright** (Chromium headless) per il rendering JS: **Vinted**, **AliExpress**.
+- **BeautifulSoup** per il parsing dell'HTML renderizzato.
+- Vinted: `wait_until="domcontentloaded"` + wait `h1` + attesa fissa. `networkidle` **non** va usato: Vinted ricarica di continuo e va in timeout.
+- `requests` da solo non basta: i marketplace rendono il contenuto via JS.
 
-4. Identificatori e formati
+4. Code / background jobs
 
-- PK consigliata: `serial` (integer autoincrement) per semplicità; migrabile a `UUID` in futuro se necessario
-- Date/time: ISO8601 UTC in DB; visualizzazione in `Europe/Rome` sul client
-- Valuta: ISO code (default: EUR)
+- **Redis con LISTE** (`scrape_queue:<sito>`), una coda per sito, gestita dal bot.
+- Il **RQ worker è stato rimosso**: nessuno accodava job RQ, il container lo avviava per nulla.
 
-5. Operazioni e dev tooling
+5. Database
 
-- Contenitori: Dockerfile per ogni componente (da aggiungere in fase di packaging)
-- CI: GitHub Actions (lint, test, build)
-- Logging: stdout JSON-structured; integrazione con Sentry/Prometheus opzionale
+- Postgres 15 in produzione (container `db`); SQLite come fallback locale.
+- Schema gestito dall'app (`init_db()` con `create_all`): **non** aggiunge colonne a tabelle esistenti.
 
-6. Environment variables minime (esempio)
+6. Storage immagini
 
-- BOT_TOKEN
-- DATABASE_URL
-- REDIS_URL
-- S3_BUCKET, S3_ENDPOINT (se compatibile), S3_ACCESS_KEY, S3_SECRET_KEY
-- BASE_URL
-- ENV (development|production)
-- DEFAULT_CURRENCY (EUR)
+- Filesystem locale su volume **condiviso fra BE e BOT** (`images/`).
+- Il BOT scarica le immagini, il BE le serve su `/media`.
 
-7. Motivazioni sintetiche
+7. Variabili d'ambiente (reali)
 
-- Python + FastAPI: rapido sviluppo, async naturale per scraping e bot
-- RQ: semplice da integrare e mantenere per carico singolo-utente
-- React+TS: UI moderna, tipizzazione utile per UX e sincronizzazione con IndexedDB
-- Postgres + S3: storage solido e scalabile in futuro
+- **BE**: `DATABASE_URL`
+- **BOT**: `BOT_TOKEN`, `REDIS_URL`, `ALLOWED_TELEGRAM_USER_IDS`, `BASE_URL` (link interni nei messaggi), `API_BASE` (URL del BE, es. `http://app:8004`)
+- **FE**: `VITE_APP_VERSION` (build arg)
 
-8. Prossimi step raccomandati
+8. CI/CD e deploy
 
-- Generare scaffold progetto (backend + bot + RQ worker) e `requirements.txt`/`pyproject.toml`
-- Creare schema SQL iniziale + Alembic migrations
-- Creare boilerplate frontend Vite + React + TypeScript e setup IndexedDB
+- GitHub Actions: build + push di **3 immagini** su Docker Hub (`frontend-latest`, `backend-latest`, `bot-latest`) ad ogni push su `main`.
+- Deploy: `git pull` + `docker compose up -d` in `/mnt/applicazioni/yml/docker/interesting-items`.
 
----
+9. Non implementato (idee del design iniziale)
 
-Note: questo file è pensato come riferimento operativo breve; se vuoi lo trasformo in un file più formale (tabella di tipi DB, version pin, policy di deploy).
+- Object storage S3 per le immagini (si usa il filesystem)
+- IndexedDB nel client
+- Endpoint `POST /api/scrape` e `POST /api/sync-local`
+- Full-text search con `tsvector`
+- Migration Alembic (lo schema si evolve via nuova versione dell'app)
+- Webhook Telegram (si usa il polling)
+- RQ (sostituito dalle liste Redis del bot)

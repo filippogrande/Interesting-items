@@ -1,0 +1,6 @@
+aiogram
+redis
+requests
+beautifulsoup4
+python-dotenv
+playwright
