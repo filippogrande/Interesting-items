@@ -1,15 +1,11 @@
 services:
+  # --- BE: unico proprietario del DB, espone l'API ---
   app:
     image: filippogrande/interesting-items:backend-latest
     pull_policy: always
     ports:
       - "8004:8004"
     environment:
-      # URL pubblico/di rete per costruire link interni (usato dal bot)
-      - BASE_URL=${BASE_URL:-http://localhost:3002}
-      - BOT_TOKEN=${BOT_TOKEN}
-      - REDIS_URL=redis://redis:6379
-      - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/products
     volumes:
       - /mnt/applicazioni/interesting-items/storage_data:/app/storage_data
@@ -18,8 +14,28 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
+    restart: unless-stopped
+
+  # --- BOT: Telegram + scraper. Non accede al DB, parla al BE via HTTP ---
+  bot:
+    image: filippogrande/interesting-items:bot-latest
+    pull_policy: always
+    environment:
+      # URL pubblico per i link interni nei messaggi (deve puntare a 10.0.0.5:3002)
+      - BASE_URL=${BASE_URL:-http://localhost:3002}
+      # URL del BE dentro la rete compose
+      - API_BASE=http://app:8004
+      - BOT_TOKEN=${BOT_TOKEN}
+      - REDIS_URL=redis://redis:6379
+      - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
+    # stesse dir host del BE: il BE serve /media le immagini scritte dal bot
+    volumes:
+      - /mnt/applicazioni/interesting-items/storage_data:/app/storage_data
+      - /mnt/applicazioni/interesting-items/images:/app/images
+      - /mnt/applicazioni/interesting-items/tmp:/app/tmp
+    depends_on:
+      - app
+      - redis
     restart: unless-stopped
 
   db:
@@ -40,6 +56,7 @@ services:
     image: redis:7
     volumes:
       - redis_data:/data
+
   frontend:
     image: filippogrande/interesting-items:frontend-latest
     pull_policy: always
@@ -48,6 +65,6 @@ services:
     depends_on:
       - app
     restart: unless-stopped
+
 volumes:
   redis_data:
-
