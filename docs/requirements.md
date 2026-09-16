@@ -1,3 +1,11 @@
+> ⚠️ **DOCUMENTO STORICO** — Requisiti e scope scritti all'avvio del progetto.
+> Alcune scelte qui descritte **non** sono state implementate come scritto: la coda è su liste
+> Redis gestite dal bot (**non** RQ), lo scraping usa **Playwright**, gli endpoint
+> `POST /api/scrape` e `POST /api/sync-local` **non esistono**, S3 e IndexedDB **non** sono usati.
+> Per lo stato attuale vedi `PROJECT_ARCHITECTURE.md` e `docs/tech_stack.md`.
+
+---
+
 Requisiti e Scope — Progetto: Web + Telegram Bot per scraping prodotti
 
 Salvataggio del file: `docs/requirements.md` (cartella `docs/` nella root del progetto)
@@ -59,6 +67,7 @@ Sintesi struttura file:
 
 - Dato il basso volume, nessun merge automatico richiesto.
 - Possibile rilevazione potenziale duplicati tramite `normalized_title` + hash immagini (opzionale, attivabile dopo).
+- Nota attuale: il **merge manuale** fra prodotti è invece implementato (vista Merge → `POST /api/products/merge`).
 
 7. Rate-limiting e retry
 
@@ -104,10 +113,6 @@ Sintesi struttura file:
 - Vuoi che io implementi subito parsing specifico per Vinted, Wallapop, Subito.it, AliExpress e eBay?
 - Confermi che la Web UI rimane non protetta per ora?
 - Vuoi esportazione CSV/JSON fin da subito?
-
----
-
-Ho riorganizzato e semplificato il file: ho rimosso duplicazioni e ho lasciato le domande aperte per te. Dimmi se approvi la versione così e quali risposte dare alle domande aperte; poi procedo con lo step successivo che preferisci (schema SQL o scaffold completo).
 
 16. Requisiti tecnici avanzati e specifiche operative
 
@@ -175,10 +180,6 @@ Ho riorganizzato e semplificato il file: ho rimosso duplicazioni e ho lasciato l
 - Config/environment variables (minimo):
   - `BOT_TOKEN`, `DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `BASE_URL`, `ENV` (dev/prod), `DEFAULT_CURRENCY`
 
----
-
-Se vuoi, posso ora generare lo schema SQL dettagliato basato sullo schema suggerito e creare migration iniziali (Alembic) oppure creare subito lo scaffold del progetto. Dimmi quale preferisci.
-
 14. Dettagli aggiuntivi richiesti dall'utente
 
 - Deduplica & identificazione:
@@ -225,4 +226,4 @@ Se vuoi, posso ora generare lo schema SQL dettagliato basato sullo schema sugger
 
 ---
 
-Ho aggiunto questi dettagli al file `docs/requirements.md`. Vuoi che ora generi lo schema SQL dettagliato e le migration (opzione raccomandata) oppure preferisci che proceda direttamente con lo scaffold del progetto?
+Stato attuale (16 settembre 2026): realizzati BE (FastAPI), BOT (Telegram + scraper Vinted/AliExpress) e FE (React), su 3 componenti separati. Schema effettivo in `backend/storage/db.py`. Endpoint reali in `backend/app/API_DOCUMENTATION.md`.
