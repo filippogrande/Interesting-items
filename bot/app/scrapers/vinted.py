@@ -2,6 +2,12 @@
 
 Nota architetturale: NON scrive sul database. Persiste i dati tramite le API
 del BE (vedi bot/app/api_client.py).
+
+Ritorna uno stato (OK / NOT_FOUND / ERROR) così il bot può dire all'utente se
+l'annuncio non esiste più invece di mostrare un errore generico.
+
+Delle immagini vengono tenute SOLO quelle dell'annuncio: la foto profilo del
+venditore (e in generale gli avatar) va esclusa.
 """
 import os
 import re
@@ -15,6 +21,31 @@ from xml.etree.ElementTree import Element, SubElement, ElementTree
 import traceback
 
 from .. import api_client
+from . import OK, NOT_FOUND, ERROR
+
+# Vinted risponde 404 (a volte 410) per annunci rimossi o venduti.
+NOT_FOUND_HTTP_STATUSES = {404, 410}
+
+# Fallback: a volte la pagina "non trovato" arriva con HTTP 200.
+NOT_FOUND_MARKERS = (
+    "non trouv",
+    "introuvable",
+    "pagina non trovata",
+    "página no encontrada",
+    "not found",
+    "nicht gefunden",
+    "nie znaleziono",
+)
+
+# Token che indicano un'immagine NON di prodotto (foto profilo/avatar venditore).
+AVATAR_TOKENS = (
+    "avatar",
+    "user",
+    "profil",
+    "member",
+    "seller",
+    "owner",
+)
 
 
 def get_item_id_from_url(url: str) -> str:
@@ -34,17 +65,26 @@ def log_vinted(msg: str):
 
 
 def download_rendered_html(url: str, html_path: str):
+    """Scarica l'HTML renderizzato della pagina annuncio.
+
+    Ritorna ``(status, http_status)`` con status in {OK, NOT_FOUND, ERROR}.
+    """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         log_vinted('Playwright non installato. Installa con: pip install playwright')
-        return False
+        return (ERROR, None)
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             # NON usare 'networkidle': Vinted ricarica in continuo e va in timeout.
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            response = page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            http_status = response.status if response is not None else None
+            if http_status in NOT_FOUND_HTTP_STATUSES:
+                log_vinted(f'HTTP {http_status}: annuncio non più disponibile ({url})')
+                browser.close()
+                return (NOT_FOUND, http_status)
             try:
                 page.wait_for_selector("h1", timeout=15000)
             except Exception:
@@ -54,13 +94,92 @@ def download_rendered_html(url: str, html_path: str):
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(html)
             browser.close()
-        return True
+        return (OK, http_status)
     except Exception as e:
         log_vinted(f'Errore Playwright: {e} - ' + traceback.format_exc())
-        return False
+        return (ERROR, None)
+
+
+def _image_blob(img) -> str:
+    """Testo su cui cercare indizi di "avatar": alt, testid, aria-label, classi."""
+    parts = [
+        img.get('alt') or '',
+        img.get('data-testid') or '',
+        img.get('aria-label') or '',
+        ' '.join(img.get('class') or []),
+    ]
+    return ' '.join(parts).lower()
+
+
+def _inside_seller_block(img) -> bool:
+    """True se l'immagine sta dentro il blocco del venditore.
+
+    Su Vinted il venditore è linkato come ``/member/<id>-<username>``; l'avatar
+    sta normalmente dentro quel link o in contenitori con classi tipo "avatar".
+    """
+    for parent in img.parents:
+        name = getattr(parent, 'name', None)
+        if not name:
+            continue
+        if name == 'a':
+            href = (parent.get('href') or '').lower()
+            if '/member/' in href or '/users/' in href:
+                return True
+        classes = ' '.join(parent.get('class') or []).lower()
+        if any(token in classes for token in ('avatar', 'member', 'seller', 'profile', 'user-card')):
+            return True
+    return False
+
+
+def collect_product_images(soup):
+    """Raccoglie SOLO le immagini dell'annuncio.
+
+    Esclude la foto profilo/avatar del venditore. Se la pagina espone le foto
+    dell'annuncio con ``data-testid="item-photo-…"`` ci si limita a quelle.
+    """
+    all_images = soup.find_all('img')
+    tagged = [
+        img for img in all_images
+        if (img.get('data-testid') or '').lower().startswith('item-photo')
+    ]
+    candidates = tagged if tagged else all_images
+
+    collected = []
+    for img in candidates:
+        if _inside_seller_block(img):
+            log_vinted('Immagine scartata (blocco venditore)')
+            continue
+        if any(token in _image_blob(img) for token in AVATAR_TOKENS):
+            log_vinted('Immagine scartata (sembra un avatar)')
+            continue
+
+        src = img.get('src') or img.get('data-src') or img.get('data-original')
+        if not src:
+            continue
+        if src.startswith('//'):
+            src = 'https:' + src
+        elif src.startswith('/'):
+            src = 'https://www.vinted.it' + src
+        try:
+            parsed = urlparse(src)
+            netloc = parsed.netloc.lower()
+        except Exception:
+            continue
+        if not (
+            'images1.vinted.net' in netloc
+            or 'images.vinted.net' in netloc
+            or 'images.vinted' in netloc
+        ):
+            continue
+        path = parsed.path.lower()
+        if '/t/' in path or '/f800/' in src or re.search(r'/f\d+/', path):
+            alt = (img.get('alt') or '').strip()
+            collected.append((src, alt))
+    return collected
 
 
 def scrape_vinted(url: str):
+    """Scrapa un annuncio Vinted. Ritorna OK / NOT_FOUND / ERROR."""
     log_vinted(f'Inizio scraping per URL: {url}')
     item_id = get_item_id_from_url(url)
     html_path = f'tmp/item_{item_id}_rendered.html'
@@ -72,10 +191,9 @@ def scrape_vinted(url: str):
     os.makedirs(images_dir, exist_ok=True)
 
     log_vinted(f'Scarico HTML renderizzato da {url}...')
-    ok = download_rendered_html(url, html_path)
-    if not ok:
-        log_vinted('Errore nel download HTML.')
-        return False
+    status, http_status = download_rendered_html(url, html_path)
+    if status != OK:
+        return status
 
     title = ''
     description = ''
@@ -89,7 +207,7 @@ def scrape_vinted(url: str):
             html = f.read()
     except Exception as e:
         log_vinted(f'Errore apertura HTML: {html_path} ({e})')
-        return False
+        return ERROR
 
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -126,25 +244,7 @@ def scrape_vinted(url: str):
             if sp:
                 condition = sp.get_text(strip=True)
 
-    img_urls = []
-    for img in soup.find_all('img'):
-        src = img.get('src') or img.get('data-src') or img.get('data-original')
-        if not src:
-            continue
-        if src.startswith('//'):
-            src = 'https:' + src
-        elif src.startswith('/'):
-            src = 'https://www.vinted.it' + src
-        try:
-            parsed = urlparse(src)
-            netloc = parsed.netloc.lower()
-        except Exception:
-            netloc = ''
-        if 'images1.vinted.net' in netloc or 'images.vinted.net' in netloc or 'images.vinted' in netloc:
-            path = parsed.path.lower()
-            if '/t/' in path or '/f800/' in src or re.search(r'/f\d+/', path):
-                alt = (img.get('alt') or '').strip()
-                img_urls.append((src, alt))
+    img_urls = collect_product_images(soup)
 
     seen = set()
     image_links = []
@@ -155,6 +255,8 @@ def scrape_vinted(url: str):
         seen.add(u)
         image_links.append(u)
         image_alts.append(alt)
+
+    log_vinted(f'Immagini di prodotto trovate: {len(image_links)}')
 
     image_filenames = []
     images_meta = []
@@ -227,10 +329,14 @@ def scrape_vinted(url: str):
     except Exception as e:
         log_vinted(f'Errore salvataggio XML: {e}')
 
-    # Se non abbiamo un titolo la pagina non e' stata renderizzata: errore.
+    # Nessun titolo: distinguere "annuncio non più disponibile" da un errore vero.
     if not title:
+        lowered = (text or '').lower()
+        if any(marker in lowered for marker in NOT_FOUND_MARKERS):
+            log_vinted('Pagina di annuncio non trovato: rimosso o venduto.')
+            return NOT_FOUND
         log_vinted('Titolo non trovato: pagina non renderizzata correttamente.')
-        return False
+        return ERROR
 
     try:
         product_data = {
@@ -246,7 +352,7 @@ def scrape_vinted(url: str):
         product_id = api_client.create_product(product_data)
         if product_id is None:
             log_vinted('Errore API creazione prodotto')
-            return False
+            return ERROR
 
         for fname, img_url in zip(image_filenames, image_links):
             image_data = {
@@ -272,6 +378,6 @@ def scrape_vinted(url: str):
         log_vinted(f'Dati salvati. Prodotto id={product_id}, immagini={len(image_filenames)}')
     except Exception as e:
         log_vinted(f'Errore chiamate API: {e}')
-        return False
+        return ERROR
 
-    return True
+    return OK

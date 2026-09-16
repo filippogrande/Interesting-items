@@ -32,12 +32,25 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 - `init_db()` usa `create_all` (NON altera tabelle esistenti).
 
 ### BOT — `bot/`
-- `app/main.py` — bot Telegram: normalizza URL, **chiede al BE** se il prodotto esiste già (anti-duplicato via HTTP), accoda su Redis.
+- `app/main.py` — bot Telegram: normalizza URL, controlla i duplicati, accoda su Redis, scrapa e riferisce l'esito.
 - `app/api_client.py` — **unico punto** di contatto col BE (nessun accesso diretto al DB).
+- `app/scrapers/__init__.py` — stati di risultato condivisi: `OK`, `NOT_FOUND`, `ERROR`.
 - `app/scrapers/vinted.py` — scrape Vinted con Playwright (`wait_until="domcontentloaded"`); persiste via API.
-- `app/scrapers/aliexpress.py` — scrape AliExpress; persiste via API.
+- `app/scrapers/aliexpress.py` — scrape AliExpress; persiste via API (ritorna bool, normalizzato dal bot).
 - `start.sh` — avvia solo il bot (`python -m app.main`).
-- Coda persistenti su Redis (`scrape_queue:<sito>`), una per sito.
+
+**Anti-duplicato (due livelli)**
+1. prodotto già salvato nel DB → `GET /api/sourceurls/lookup` sul BE;
+2. link **ancora in coda o in lavorazione** → set Redis `scrape_pending` (il DB non li vede finché lo scrape non è finito). Il set viene ricostruito dalle code all'avvio, così un URL non resta bloccato dopo un riavvio.
+
+**Esito dello scraping**
+Gli scraper ritornano `OK` / `NOT_FOUND` / `ERROR`. `NOT_FOUND` (Vinted risponde 404/410 o serve la pagina "non trovato") diventa un messaggio dedicato all'utente: *annuncio non più disponibile (rimosso o venduto)* — non un errore generico.
+
+**Immagini: solo quelle del prodotto**
+Delle immagini si tengono **solo quelle dell'annuncio**. Viene esclusa la foto profilo/avatar del venditore: prima l'unico filtro era l'host + pattern URL (`/t/`, `/f800/`, `/f\d+/`) e l'avatar passava. Ora, oltre a quel filtro, si scartano le immagini dentro il blocco venditore (link `/member/…` o classi con `avatar`/`member`/`seller`/`profile`) e quelle con indizi di avatar in `alt`/`data-testid`/classi; se la pagina espone le foto con `data-testid="item-photo-…"` si considerano solo quelle. Del venditore non viene salvato **nulla**.
+
+**Code**
+Liste Redis (`scrape_queue:<sito>`), una per sito, processate in sequenza dal bot (`BETWEEN_SCRAPES_SECONDS` fra uno scrape e il successivo).
 
 ### Database
 - Postgres (container `db`). Tabelle: `product`, `image`, `price`, `sourceurl`, `tag`, `product_tag_link`, `bundle`, `bundle_product_link`.
@@ -47,7 +60,7 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 ## Flusso Architetturale
 
 1. **Avvio**: `docker compose up -d` → `app` (BE :8004) + `bot` + `frontend` (:3002) + Postgres + Redis.
-2. **Scrape**: l'utente manda un link al bot → il bot normalizza → `GET /api/sourceurls/lookup` sul BE (anti-duplicato) → se nuovo, accoda su Redis → `vinted.py` (Playwright) → `POST /api/products` + immagini + prezzi + sourceurl.
+2. **Scrape**: l'utente manda un link al bot → il bot normalizza → controlla DB (`/api/sourceurls/lookup`) e coda (`scrape_pending`) → se nuovo, accoda su Redis → `vinted.py` (Playwright) → `POST /api/products` + immagini + prezzi + sourceurl.
 3. **UI**: frontend chiama `/api/dashboard/products` (paginato) → lista; click → `/api/dashboard/products/{id}` → dettaglio.
 4. **Merge**: pagina Unisci → selezione main + da-mergiare → `POST /api/products/merge`.
 
@@ -57,6 +70,7 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 - CI (`.github/workflows/docker-build-push.yml`) costruisce **3 immagini** su push in `main`.
 - Modifiche via branch → PR → merge in `main` → `git pull` + `docker compose up -d` nella cartella `/mnt/applicazioni/yml/docker/interesting-items`.
 - Volumi condivisi fra BE e bot: `images/`, `tmp/`, `storage_data/` (il BE serve `/media` le immagini scritte dal bot).
+- ⚠️ `app_data/` (log degli scraper) **non** è montato: il file di log vive nel container; i log restano comunque visibili su stdout (`docker compose logs bot`).
 
 ## Aree da sistemare (paletti da DEVELOPMENT_GUIDELINES)
 
