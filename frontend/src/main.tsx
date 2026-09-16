@@ -41,6 +41,22 @@ function App() {
   const createBundle = () => createBundleFn(selected?.id as number);
   const createBundleFromPrice = (price: any, idx: number) => createBundleFromPriceFn(price, selected?.id as number);
 
+  /**
+   * Salva il merge e RICARICA i dati.
+   *
+   * Dopo un merge il prodotto principale ha nuove risorse (immagini, prezzi,
+   * link e tag arrivati dal prodotto mergiato). Senza ricaricare il dettaglio,
+   * la vista confronto continuerebbe a mostrare lo stato vecchio (es. solo i
+   * prezzi originali) e un merge successivo partirebbe da dati stantii.
+   * Ricarichiamo anche la lista, perché il prodotto mergiato è sparito.
+   */
+  const commitMergeAndRefresh = async (selectedId: number) => {
+    const result = await commitMerge(selectedId);
+    await loadDetail(selectedId);
+    await loadProducts(selectedTagId as any, selectedSourceSite, excludeTagIds, true);
+    return result;
+  };
+
   useEffect(() => {
     void loadTagsStats();
     void loadSourceWebsitesStats();
@@ -147,7 +163,7 @@ function App() {
         {view === "dashboard" && renderListDetail()}
         {view === "tags" && (<TagsView error={error} statsProducts={stats.products} tagsStats={tagsStats} selectedTagId={selectedTagId} setSelectedTagId={setSelectedTagId} selectedSourceSite={selectedSourceSite} setSelectedSourceSite={setSelectedSourceSite} query={query} setQuery={setQuery} TAG_KIND_ORDER={TAG_KIND_ORDER} TAG_KIND_LABELS={TAG_KIND_LABELS} tagsByKind={tagsByKind} excludeTagsExpanded={excludeTagsExpanded} setExcludeTagsExpanded={setExcludeTagsExpanded} excludeTagIds={excludeTagIds} toggleExcludeTag={toggleExcludeTag} clearExcludeTags={clearExcludeTags} tagMap={tagMap} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} onBack={onBack} onRefresh={onRefresh} detailPanel={detailPanel} />)}
         {view === "sources" && (<SourcesView sourceWebsitesStats={sourceWebsitesStats} totalProducts={stats.products} error={error} onBack={onBack} onRefresh={onRefresh} onSelectAll={onSelectAll} onSelectSite={onSelectSite} selectedSourceSite={selectedSourceSite} filteredProducts={filteredProducts} selected={selected} loadDetail={loadDetail} loadingList={loadingList} formatDate={formatDate} formatMoney={formatMoney} query={query} setQuery={setQuery} detailPanel={detailPanel} />)}
-        {view === "merge" && (<MergeView filteredProducts={filteredProducts} selected={selected} mergeCandidateDetail={mergeCandidateDetail} query={query} setQuery={setQuery} error={error} setView={setView} loadDetail={loadDetail} loadMergeCandidate={loadMergeCandidate} mergePhase={mergePhase} openMergeEditor={openMergeEditor} goBackToChooser={goBackToChooser} commitMerge={commitMerge} mergeDraft={mergeDraftState} setMergeDraft={setMergeDraftState} keepImageIds={keepImageIds} setKeepImageIds={setKeepImageIds} keepPriceIds={keepPriceIds} setKeepPriceIds={setKeepPriceIds} keepSourceUrlIds={keepSourceUrlIds} setKeepSourceUrlIds={setKeepSourceUrlIds} mergeTagIds={mergeTagIds} setMergeTagIds={setMergeTagIds} />)}
+        {view === "merge" && (<MergeView filteredProducts={filteredProducts} selected={selected} mergeCandidateDetail={mergeCandidateDetail} query={query} setQuery={setQuery} error={error} setView={setView} loadDetail={loadDetail} loadMergeCandidate={loadMergeCandidate} mergePhase={mergePhase} openMergeEditor={openMergeEditor} goBackToChooser={goBackToChooser} commitMerge={commitMergeAndRefresh} mergeDraft={mergeDraftState} setMergeDraft={setMergeDraftState} keepImageIds={keepImageIds} setKeepImageIds={setKeepImageIds} keepPriceIds={keepPriceIds} setKeepPriceIds={setKeepPriceIds} keepSourceUrlIds={keepSourceUrlIds} setKeepSourceUrlIds={setKeepSourceUrlIds} mergeTagIds={mergeTagIds} setMergeTagIds={setMergeTagIds} />)}
       </main>
 
       <LightboxViewer selected={selected} viewerOpen={viewerOpen} setViewerOpen={setViewerOpen} viewerIndex={viewerIndex} moveViewer={moveViewer} />

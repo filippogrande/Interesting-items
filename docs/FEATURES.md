@@ -64,6 +64,7 @@ La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`
 - **Prezzi e link sono coppie legate** — una X rimuove entrambi (sono accoppiati per indice nel modello)
 - **← Indietro** (in alto a sinistra) — torna alla selezione **conservando** selezioni e modifiche
 - **Salva merge** (in alto a destra) — invia al BE le liste finali (`keep_image_ids`, `keep_price_ids`, `keep_source_url_ids`, `tag_ids`) + i valori dei campi singoli
+- **Refresh dopo il salvataggio** — a merge concluso l'App ricarica il **dettaglio del prodotto principale** (che ora contiene anche immagini/prezzi/link/tag arrivati dal prodotto mergiato) e **la lista prodotti**; senza questo, un merge successivo partirebbe da dati stantii (es. si vedrebbero solo i prezzi originali)
 
 ## 7. Creazione Prodotto (`CreationModal`)
 
@@ -99,7 +100,7 @@ La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`
 - `useSourceWebsites` — stats siti
 
 ### Orchestratore
-- `main.tsx` — `App()` compone gli hook e rende le viste in base alla tab attiva
+- `main.tsx` — `App()` compone gli hook e rende le viste in base alla tab attiva; per il merge espone `commitMergeAndRefresh` (commit + ricarica dettaglio e lista)
 
 ---
 
