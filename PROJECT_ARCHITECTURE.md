@@ -46,8 +46,8 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 **Esito dello scraping**
 Gli scraper ritornano `OK` / `NOT_FOUND` / `ERROR`. `NOT_FOUND` (Vinted risponde 404/410 o serve la pagina "non trovato") diventa un messaggio dedicato all'utente: *annuncio non più disponibile (rimosso o venduto)* — non un errore generico.
 
-**Dati del venditore (Vinted)**
-Dalla pagina annuncio viene estratto il venditore (link `/member/<id>-<username>`) e salvato in `product.product_metadata` come JSON: `{"seller": {"username": …, "user_id": …, "profile_url": …}}`. Nessuna colonna nuova.
+**Immagini: solo quelle del prodotto**
+Delle immagini si tengono **solo quelle dell'annuncio**. Viene esclusa la foto profilo/avatar del venditore: prima l'unico filtro era l'host + pattern URL (`/t/`, `/f800/`, `/f\d+/`) e l'avatar passava. Ora, oltre a quel filtro, si scartano le immagini dentro il blocco venditore (link `/member/…` o classi con `avatar`/`member`/`seller`/`profile`) e quelle con indizi di avatar in `alt`/`data-testid`/classi; se la pagina espone le foto con `data-testid="item-photo-…"` si considerano solo quelle. Del venditore non viene salvato **nulla**.
 
 **Code**
 Liste Redis (`scrape_queue:<sito>`), una per sito, processate in sequenza dal bot (`BETWEEN_SCRAPES_SECONDS` fra uno scrape e il successivo).
@@ -76,7 +76,6 @@ Liste Redis (`scrape_queue:<sito>`), una per sito, processate in sequenza dal bo
 
 - 🟡 Paginazione: assicurarsi di non usare cap fissi (`limit: 100`) in `loadProducts`; preferire paginazione/scroll infinito.
 - 🟡 Script di sviluppo scraper rimasti in `backend/app/` (`test_vinted.py`, `test_aliexpress.py`, `run_single_scrape.py`, `run_extract_aliexpress_variants.py`): spostarli in `bot/` o eliminarli.
-- 🟡 Il profilo venditore è salvato in `product_metadata` ma **non è mostrato** in UI: valutare una vista nel pannello dettaglio.
 - 🟡 Documentare gli endpoint in modo strutturato (openapi o `.md` API dedicato; da valutare).
 
 ## Backlog
