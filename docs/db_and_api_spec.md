@@ -1,3 +1,12 @@
+> ⚠️ **DOCUMENTO STORICO** — Specifica tecnica di design dell'MVP, scritta all'avvio del progetto.
+> Non descrive lo stato attuale: gli endpoint `POST /api/scrape` e `POST /api/sync-local`
+> **non sono implementati**, il job contract RQ **non è in uso** (la coda è su liste Redis gestite
+> dal bot), S3 e IndexedDB **non** sono usati, le migration Alembic **non** sono in uso.
+> Schema effettivo: `backend/storage/db.py`. Endpoint reali: `backend/app/API_DOCUMENTATION.md`.
+> Struttura attuale: `PROJECT_ARCHITECTURE.md`.
+
+---
+
 DB & API Specification — Product Scraper
 
 Questo documento contiene la specifica tecnica dettagliata per il database e per le API REST dell'MVP.
@@ -72,15 +81,9 @@ parent_id INTEGER REFERENCES categories(id),
 metadata JSONB
 );
 
--- product_categories (pivot N:N)
--- (removed) products now reference `categories` via `products.category_id` (1:many)
-
 -- Full text index for search
 ALTER TABLE products ADD COLUMN search_vector tsvector;
 CREATE INDEX idx_products_search ON products USING GIN (search_vector);
-
--- Trigger to update search_vector (example using pg_trgm/tsvector)
--- (Implement trigger/function in migration)
 
 3. Indici e vincoli raccomandati
 
@@ -95,6 +98,7 @@ CREATE INDEX idx_products_search ON products USING GIN (search_vector);
   - Nota: lo schema non include più il tipo `product_status`. Se una versione precedente del DB lo contiene,
     la migration iniziale deve evitare di ricrearlo o gestire il DROP/ALTER necessario; usare `alembic revision --autogenerate`
     con attenzione e verificare manualmente gli script generati.
+  - **Stato attuale**: Alembic non è in uso; lo schema è creato con `create_all`.
 
 5. API Design (REST) — autenticazione: none for MVP
    Base path: `/api`
@@ -103,49 +107,36 @@ CREATE INDEX idx_products_search ON products USING GIN (search_vector);
 
 - POST /api/scrape
   - descrizione: enqueue scraping job (usato dal bot o UI)
-  - body: { "url": "https://...", "notify_user": true }
-  - response: 202 Accepted
-    { "job_id": "<rq-job-id>", "status": "queued" }
+  - **NON IMPLEMENTATO**: l'accodamento avviene nel bot, su liste Redis.
 
 - GET /api/products
   - descrizione: elenco minimale per lista/ricerca
   - query params: `q`, `category`, `archived`, `limit`, `offset`, `sort`
-  - response: { "items": [{ "id", "title", "thumbnail_filename", "category", "avg_price" }], "total": 123 }
 
 - GET /api/products/{id}
   - descrizione: dettaglio prodotto completo
-  - response: product object (vedi schema sotto)
 
 - GET /api/products/{id}/prices
   - descrizione: storico prezzi per grafico
-  - response: [{ "id", "amount", "currency", "price_category", "condition", "platform", "added_at", "sold" }, ...]
 
 - POST /api/products/{id}/source_urls
   - body: { "url": "https://..." }
-  - response: 201 { "id": <source_id>, "url": "..." }
 
 - DELETE /api/products/{id}/source_urls/{source_id}
   - descrizione: rimuove link sorgente non valido
-  - response: 204 No Content
 
 - POST /api/products/{id}/prices
   - body: { "amount": 12.34, "currency":"EUR", "price_category":"usato", "condition":"usato", "platform":"..." }
-  - response: 201 created price object
 
 - PATCH /api/prices/{price_id}
   - body examples: { "sold": true } oppure partial updates
-  - response: 200 updated price
 
 - PATCH /api/products/{id}
   - body: partial product fields (title, description, category_id, metadata, archived)
-  - response: 200 updated product
 
 - POST /api/sync-local
   - descrizione: bulk create/update/delete per sincronizzazione client offline
-  - body: { "changes": [ {"op":"create|update|delete","type":"product|price|source_url", "payload":{...}} ] }
-  - response: merged results, conflicts if any
-
-Nota: preferire endpoint piccoli e mirati per le azioni utente (PATCH per singole modifiche). Usare bulk endpoints (`/api/sync-local`) solo per sync/import.
+  - **NON IMPLEMENTATO**: il FE non usa IndexedDB e non c'è sync offline.
 
 Common models (JSON)
 Product (response):
@@ -168,79 +159,68 @@ Product (response):
 
 5.1 POST /api/products
 
-- Scopo: creare un prodotto o aggiornare esistente (upsert by id optional)
+- Scopo: creare un prodotto
 - Body (example):
   {
   "title": "Nintendo Switch",
   "description": "Buono stato",
   "brand": "Nintendo",
-  "origin_type": "reseller",
-  "source_urls": ["https://..."],
-  "images": ["https://.../img1.jpg"]
+  "origin_type": "reseller"
   }
 - Response: 201 Created with created product object
 - Errors: 400 on validation
 
-  5.2 GET /api/products
+5.2 GET /api/products
 
-- Query params: `q` (fulltext), `category`, `archived`, `limit`, `offset`, `sort`
-- Response: { "items": [...], "total": 123 }
+- Query params: `q`, `limit`, `offset`
+- **Stato attuale**: la risposta è una lista semplice (non `{ items, total }`).
 
-  5.3 GET /api/products/{id}
+5.3 GET /api/products/{id}
 
 - Response: product object or 404
 
-  5.4 PUT /api/products/{id}
+5.4 PATCH /api/products/{id}
 
-- Body: partial or full product fields
+- Body: partial product fields
 - Response: 200 updated product
 
-  5.5 DELETE /api/products/{id}
+5.5 DELETE /api/products/{id}
 
-- Soft-delete (set archived=true) or hard delete param
+- Hard delete (cancella anche immagini/prezzi/link/tag)
 - Response: 204 No Content
 
-  5.6 POST /api/scrape
+5.6 POST /api/scrape
 
-- Scopo: enqueue scraping job (alternative to Telegram)
-- Body: { "url": "https://...", "notify_user": true }
-- Response: 202 Accepted { "job_id": "..." }
+- **NON IMPLEMENTATO** (vedi sopra)
 
-  5.7 POST /api/sync-local
+5.7 POST /api/sync-local
 
-- Scopo: sincronizzare modifiche dal client IndexedDB
-- Body: payload with list of local changes (create/update/delete) with client-generated temp ids
-- Response: merged results, conflicts if any
+- **NON IMPLEMENTATO** (vedi sopra)
 
 6. Job contract & responses
 
-- Enqueue response: { "job_id": "<rq-job-id>", "status": "queued" }
-- Worker must update DB and, on error, send Telegram message to original sender (if sender_id provided)
-- Error payload example (Telegram message): "Errore scraping: timeout after 1 retry"
+- **Stato attuale**: NON esiste un job contract RQ. Il bot tiene una coda **Redis** per sito
+  (`scrape_queue:<sito>`) e la processa in sequenza al proprio interno; su errore notifica
+  l'utente su Telegram con il tipo di errore.
 
 7. Error model
 
-- 400 Bad Request: validation errors {"detail": [{"loc": [...], "msg": "...", "type": "value_error"}]}
+- 400 Bad Request: validation errors {"detail": [...]}
 - 404 Not Found
-- 409 Conflict (optional: merge conflicts during sync)
+- 409 Conflict (opzionale: non usato)
 - 500 Internal Server Error
 
 8. OpenAPI / Examples
 
-- FastAPI genera automaticamente OpenAPI; definire pydantic/sqlmodel schemas per request/response e usare `response_model`.
-- Includere esempi concreti per POST /api/products e POST /api/scrape nelle docstrings per generare esempi nella UI OpenAPI.
+- FastAPI genera automaticamente OpenAPI; usare `response_model`.
 
 9. Acceptance tests (minimi)
 
 - Unit tests per parsing HTML -> expected title/description/images for a set of fixtures
-- Integration test: POST /api/scrape -> worker processes job -> DB contains product
-- API tests: CRUD endpoints (pytest + test database)
+- Integration test: mandare un link al bot -> il bot scrapa -> il DB contiene il prodotto
+- API tests: CRUD endpoints
 
 10. Note operative
 
-- Se si decide in futuro di usare S3, salvare in DB solo il percorso pubblico o chiave oggetto.
-- Se si abilita autenticazione: proteggere endpoint `POST /api/scrape` e `POST /api/products` se esposto pubblicamente.
-
----
-
-File pronto per essere tradotto in Alembic migrations e in schemi pydantic/SQLModel per FastAPI.
+- S3 non è in uso: le immagini stanno su filesystem (volume condiviso BE/BOT).
+- L'API non è autenticata (uso personale).
