@@ -39,6 +39,9 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 - `app/scrapers/aliexpress.py` — scrape AliExpress; persiste via API (ritorna bool, normalizzato dal bot).
 - `start.sh` — avvia solo il bot (`python -m app.main`).
 
+**Ripresa delle code all'avvio (attenzione aiogram v3)**
+L'hook di avvio è registrato con `dp.startup.register(on_startup)`. In aiogram v3 **non** va passato a `start_polling` (il parametro viene ignorato): se lo si fa, il bot non notifica l'avvio e soprattutto **non riprende le code in Redis**, che restano piene e mute dopo un riavvio finché non arriva un nuovo link. Alla startup il bot: notifica gli utenti, ricostruisce `scrape_pending`, riavvia la lavorazione delle code non vuote. I log di avvio vanno su **stdout** (`docker compose logs bot`): `Bot avviato…`, `Set pending ricostruito (N voci)`, `Coda riavviata per <sito> (items=N)`.
+
 **Anti-duplicato (due livelli)**
 1. prodotto già salvato nel DB → `GET /api/sourceurls/lookup` sul BE;
 2. link **ancora in coda o in lavorazione** → set Redis `scrape_pending` (il DB non li vede finché lo scrape non è finito). Il set viene ricostruito dalle code all'avvio, così un URL non resta bloccato dopo un riavvio.
@@ -47,7 +50,7 @@ bot/        → BOT (Telegram + scraper)          immagine: ...:bot-latest
 Gli scraper ritornano `OK` / `NOT_FOUND` / `ERROR`. `NOT_FOUND` (Vinted risponde 404/410 o serve la pagina "non trovato") diventa un messaggio dedicato all'utente: *annuncio non più disponibile (rimosso o venduto)* — non un errore generico.
 
 **Immagini: solo quelle del prodotto**
-Delle immagini si tengono **solo quelle dell'annuncio**. Viene esclusa la foto profilo/avatar del venditore: prima l'unico filtro era l'host + pattern URL (`/t/`, `/f800/`, `/f\d+/`) e l'avatar passava. Ora, oltre a quel filtro, si scartano le immagini dentro il blocco venditore (link `/member/…` o classi con `avatar`/`member`/`seller`/`profile`) e quelle con indizi di avatar in `alt`/`data-testid`/classi; se la pagina espone le foto con `data-testid="item-photo-…"` si considerano solo quelle. Del venditore non viene salvato **nulla**.
+Delle immagini si tengono **solo quelle dell'annuncio**. Viene esclusa la foto profilo/avatar del venditore: l'unico filtro era l'host + pattern URL (`/t/`, `/f800/`, `/f\d+/`) e l'avatar passava. Ora, oltre a quel filtro, si scartano le immagini dentro il blocco venditore (link `/member/…` o classi con `avatar`/`member`/`seller`/`profile`) e quelle con indizi di avatar in `alt`/`data-testid`/classi; se la pagina espone le foto con `data-testid="item-photo-…"` si considerano solo quelle. Del venditore non viene salvato **nulla**.
 
 **Code**
 Liste Redis (`scrape_queue:<sito>`), una per sito, processate in sequenza dal bot (`BETWEEN_SCRAPES_SECONDS` fra uno scrape e il successivo).
@@ -76,7 +79,8 @@ Liste Redis (`scrape_queue:<sito>`), una per sito, processate in sequenza dal bo
 
 - 🟡 Paginazione: assicurarsi di non usare cap fissi (`limit: 100`) in `loadProducts`; preferire paginazione/scroll infinito.
 - 🟡 Script di sviluppo scraper rimasti in `backend/app/` (`test_vinted.py`, `test_aliexpress.py`, `run_single_scrape.py`, `run_extract_aliexpress_variants.py`): spostarli in `bot/` o eliminarli.
+- 🟡 Worker di scraping fragile: il loop per item non è protetto, non c'è un supervisore e il delay fra item è fisso a 180s (task Vikunja #77).
 - 🟡 Documentare gli endpoint in modo strutturato (openapi o `.md` API dedicato; da valutare).
 
 ## Backlog
-Il backlog vive su **Vikunja** (progetto "Interesting items"), etichettato per componente (`FE` / `BE` / `BOT`).
+Il backlog vive su **Vikunja** (progetto "Interesting items"), etichettato per componente (`FE` / `BE` / `BOT`) e con `To test` quando la fix è pronta ma non ancora verificata.
