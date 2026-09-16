@@ -5,6 +5,9 @@ del BE (vedi bot/app/api_client.py).
 
 Ritorna uno stato (OK / NOT_FOUND / ERROR) così il bot può dire all'utente se
 l'annuncio non esiste più invece di mostrare un errore generico.
+
+Delle immagini vengono tenute SOLO quelle dell'annuncio: la foto profilo del
+venditore (e in generale gli avatar) va esclusa.
 """
 import os
 import re
@@ -32,6 +35,16 @@ NOT_FOUND_MARKERS = (
     "not found",
     "nicht gefunden",
     "nie znaleziono",
+)
+
+# Token che indicano un'immagine NON di prodotto (foto profilo/avatar venditore).
+AVATAR_TOKENS = (
+    "avatar",
+    "user",
+    "profil",
+    "member",
+    "seller",
+    "owner",
 )
 
 
@@ -87,32 +100,82 @@ def download_rendered_html(url: str, html_path: str):
         return (ERROR, None)
 
 
-def extract_seller_info(soup) -> dict:
-    """Estrae il profilo del venditore dalla pagina annuncio.
+def _image_blob(img) -> str:
+    """Testo su cui cercare indizi di "avatar": alt, testid, aria-label, classi."""
+    parts = [
+        img.get('alt') or '',
+        img.get('data-testid') or '',
+        img.get('aria-label') or '',
+        ' '.join(img.get('class') or []),
+    ]
+    return ' '.join(parts).lower()
 
-    Su Vinted il venditore è linkato come ``/member/<id>-<username>``.
+
+def _inside_seller_block(img) -> bool:
+    """True se l'immagine sta dentro il blocco del venditore.
+
+    Su Vinted il venditore è linkato come ``/member/<id>-<username>``; l'avatar
+    sta normalmente dentro quel link o in contenitori con classi tipo "avatar".
     """
-    info = {}
-    try:
-        link = soup.find('a', href=re.compile(r'/member/'))
-        if not link:
-            return info
-        href = (link.get('href') or '').strip()
-        if href.startswith('/'):
-            href = 'https://www.vinted.it' + href
-        if href:
-            info['profile_url'] = href
-        match = re.search(r'/member/(\d+)-([^/?#]+)', href)
-        if match:
-            info['user_id'] = match.group(1)
-            info['username'] = match.group(2)
-        else:
-            name = link.get_text(strip=True)
-            if name:
-                info['username'] = name
-    except Exception as e:
-        log_vinted(f'Errore estrazione profilo venditore: {e}')
-    return info
+    for parent in img.parents:
+        name = getattr(parent, 'name', None)
+        if not name:
+            continue
+        if name == 'a':
+            href = (parent.get('href') or '').lower()
+            if '/member/' in href or '/users/' in href:
+                return True
+        classes = ' '.join(parent.get('class') or []).lower()
+        if any(token in classes for token in ('avatar', 'member', 'seller', 'profile', 'user-card')):
+            return True
+    return False
+
+
+def collect_product_images(soup):
+    """Raccoglie SOLO le immagini dell'annuncio.
+
+    Esclude la foto profilo/avatar del venditore. Se la pagina espone le foto
+    dell'annuncio con ``data-testid="item-photo-…"`` ci si limita a quelle.
+    """
+    all_images = soup.find_all('img')
+    tagged = [
+        img for img in all_images
+        if (img.get('data-testid') or '').lower().startswith('item-photo')
+    ]
+    candidates = tagged if tagged else all_images
+
+    collected = []
+    for img in candidates:
+        if _inside_seller_block(img):
+            log_vinted('Immagine scartata (blocco venditore)')
+            continue
+        if any(token in _image_blob(img) for token in AVATAR_TOKENS):
+            log_vinted('Immagine scartata (sembra un avatar)')
+            continue
+
+        src = img.get('src') or img.get('data-src') or img.get('data-original')
+        if not src:
+            continue
+        if src.startswith('//'):
+            src = 'https:' + src
+        elif src.startswith('/'):
+            src = 'https://www.vinted.it' + src
+        try:
+            parsed = urlparse(src)
+            netloc = parsed.netloc.lower()
+        except Exception:
+            continue
+        if not (
+            'images1.vinted.net' in netloc
+            or 'images.vinted.net' in netloc
+            or 'images.vinted' in netloc
+        ):
+            continue
+        path = parsed.path.lower()
+        if '/t/' in path or '/f800/' in src or re.search(r'/f\d+/', path):
+            alt = (img.get('alt') or '').strip()
+            collected.append((src, alt))
+    return collected
 
 
 def scrape_vinted(url: str):
@@ -181,29 +244,7 @@ def scrape_vinted(url: str):
             if sp:
                 condition = sp.get_text(strip=True)
 
-    seller_info = extract_seller_info(soup)
-    if seller_info:
-        log_vinted(f"Venditore: {seller_info.get('username') or '?'} ({seller_info.get('profile_url')})")
-
-    img_urls = []
-    for img in soup.find_all('img'):
-        src = img.get('src') or img.get('data-src') or img.get('data-original')
-        if not src:
-            continue
-        if src.startswith('//'):
-            src = 'https:' + src
-        elif src.startswith('/'):
-            src = 'https://www.vinted.it' + src
-        try:
-            parsed = urlparse(src)
-            netloc = parsed.netloc.lower()
-        except Exception:
-            netloc = ''
-        if 'images1.vinted.net' in netloc or 'images.vinted.net' in netloc or 'images.vinted' in netloc:
-            path = parsed.path.lower()
-            if '/t/' in path or '/f800/' in src or re.search(r'/f\d+/', path):
-                alt = (img.get('alt') or '').strip()
-                img_urls.append((src, alt))
+    img_urls = collect_product_images(soup)
 
     seen = set()
     image_links = []
@@ -214,6 +255,8 @@ def scrape_vinted(url: str):
         seen.add(u)
         image_links.append(u)
         image_alts.append(alt)
+
+    log_vinted(f'Immagini di prodotto trovate: {len(image_links)}')
 
     image_filenames = []
     images_meta = []
@@ -274,10 +317,6 @@ def scrape_vinted(url: str):
         SubElement(root, 'description').text = description or ''
         SubElement(root, 'price').text = str(price_val)
         SubElement(root, 'condition').text = condition or ''
-        seller_el = SubElement(root, 'seller')
-        SubElement(seller_el, 'username').text = seller_info.get('username') or ''
-        SubElement(seller_el, 'user_id').text = seller_info.get('user_id') or ''
-        SubElement(seller_el, 'profile_url').text = seller_info.get('profile_url') or ''
         imgs_el = SubElement(root, 'images')
         for meta in images_meta:
             i_el = SubElement(imgs_el, 'image')
@@ -305,11 +344,7 @@ def scrape_vinted(url: str):
             "description": description,
             "brand": None,
             "origin_type": "vinted",
-            "product_metadata": (
-                json.dumps({"seller": seller_info}, ensure_ascii=False)
-                if seller_info
-                else None
-            ),
+            "product_metadata": None,
             "category_id": None,
             "archived": False,
         }
