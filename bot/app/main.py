@@ -193,7 +193,10 @@ def rebuild_pending_set():
                         redis_conn.sadd(PENDING_SET_KEY, url)
                 except Exception:
                     continue
-        logger.info("Set pending ricostruito dalle code (%d voci)", redis_conn.scard(PENDING_SET_KEY))
+        count = redis_conn.scard(PENDING_SET_KEY)
+        logger.info("Set pending ricostruito dalle code (%d voci)", count)
+        # print (non logger) per vederlo in `docker compose logs bot` senza configurare logging
+        print(f'Set pending ricostruito dalle code ({count} voci)', flush=True)
     except Exception:
         logger.exception("Errore nella ricostruzione del set pending")
 
@@ -406,6 +409,7 @@ async def handle_message(message: types.Message):
 
 def run_polling():
     async def on_startup():
+        print('Bot avviato: notifico gli utenti e riprendo le code persistenti...', flush=True)
         if ALLOWED_USERS:
             for uid in ALLOWED_USERS:
                 try:
@@ -414,6 +418,7 @@ def run_polling():
                     logger.warning("Impossibile notificare l'utente %s: %s", uid, e)
         # ricostruisce lo stato "in coda / in lavorazione" dalle code persistenti
         rebuild_pending_set()
+        resumed = 0
         try:
             keys = redis_conn.keys("scrape_queue:*")
             for k in keys:
@@ -422,16 +427,24 @@ def run_polling():
                     length = int(redis_conn.llen(k))
                     if length > 0 and site not in site_processing:
                         site_processing[site] = asyncio.create_task(process_site_queue(site))
-                        logger.info("Riavviata coda persistente per sito %s (items=%d)", site, length)
+                        resumed += 1
+                        print(f'Coda riavviata per {site} (items={length})', flush=True)
                 except Exception:
                     logger.exception("Errore nel ripristinare la chiave di coda %s", k)
         except Exception:
             logger.exception("Errore nel controllare le code persistenti in Redis")
+        print(f'Avvio completato: code in lavorazione={resumed}', flush=True)
 
     dp.include_router(router)
+    # IMPORTANTE (aiogram v3): gli hook di avvio NON si passano a `start_polling`,
+    # che ignora il parametro. Vanno registrati sull'oggetto `dp.startup`.
+    # Senza questa registrazione il bot non notificava l'avvio e, soprattutto,
+    # NON riprendeva le code in Redis dopo un riavvio: restavano piene e mute
+    # finché non arrivava un nuovo link (che è handle_message a far ripartire).
+    dp.startup.register(on_startup)
 
     async def _main():
-        await dp.start_polling(bot, skip_updates=True, on_startup=on_startup)
+        await dp.start_polling(bot, skip_updates=True)
 
     asyncio.run(_main())
 
