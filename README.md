@@ -74,7 +74,7 @@ Il bot non tocca il database: usa `bot/app/api_client.py` per parlare col BE.
   (scraper implementati: **Vinted**, **AliExpress**; Wallapop/Subito non ancora)
 - **Anti-duplicato**: il bot controlla su due livelli — (1) il prodotto è già nel DB (`GET /api/sourceurls/lookup`) e (2) il link è **ancora in coda o in lavorazione** (set Redis `scrape_pending`). Stesso link ripetuto nello stesso messaggio: ignorato.
 - **Annuncio rimosso/venduto**: se Vinted risponde 404/410 (o serve la pagina "non trovato") il bot lo dice esplicitamente (*annuncio non più disponibile*) invece di mostrare un errore generico.
-- **Venditore (Vinted)**: dalla pagina annuncio vengono salvati username/id/link del profilo in `product_metadata`.
+- **Immagini**: vengono salvate **solo le foto del prodotto**; la foto profilo/avatar del venditore viene scartata (e del venditore non si salva nulla).
 
 ## Struttura Frontend
 
