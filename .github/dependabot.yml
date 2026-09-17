@@ -78,9 +78,12 @@ updates:
     commit-message:
       prefix: "deps"
 
-  # Immagini nei servizi di docker-compose.yml
+  # Immagini nei servizi dei docker-compose
+  # / -> docker-compose.yml, /infra -> docker-compose.dev.yml
   - package-ecosystem: "docker-compose"
-    directory: "/"
+    directories:
+      - "/"
+      - "/infra"
     schedule:
       interval: "weekly"
       day: "monday"
