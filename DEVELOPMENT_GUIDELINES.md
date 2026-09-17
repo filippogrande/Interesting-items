@@ -1,7 +1,7 @@
 # Interesting Items - Linee Guida per lo Sviluppo
 
-> Versione 1.2 - Paletti vincolanti. Ogni regola qui sotto è OBBLIGATORIA, non un suggerimento.
-> Ultimo aggiornamento: 16 settembre 2026
+> Versione 1.3 - Paletti vincolanti. Ogni regola qui sotto è OBBLIGATORIA, non un suggerimento.
+> Ultimo aggiornamento: 17 settembre 2026
 
 ## Indice
 1. [Regola 0 - Componenti separati FE/BE/BOT (vincolante)](#regola-0)
@@ -15,6 +15,7 @@
 9. [File di test / debug vietati nel tree](#test-vietati)
 10. [Documentazione](#doc)
 11. [Verifica Coerenza](#coerenza)
+12. [Dipendenze & Dependabot](#dipendenze)
 
 ---
 
@@ -121,3 +122,15 @@ Motivo: BE e bot erano nello stesso container e sulla stessa immagine; questo im
 - Prima di ogni PR: verificare di non introdurre file > 500 righe, duplicazione di componenti, o dipendenze DB fuori dal BE.
 - Se una regola non è rispettata nel codice esistente, aprire task di cleanup su Vikunja anziché perpetuarla.
 - Aggiornare questo file quando cambiano le convenzioni (bump versione + data in apertura).
+
+---
+
+## 📦 Dipendenze & Dependabot {#dipendenze}
+
+- Ogni manifest di dipendenze — `frontend/package.json`, `backend/requirements.txt`, `bot/requirements.txt`, i `Dockerfile`, `docker-compose.yml` + `infra/docker-compose.dev.yml`, i file in `.github/workflows/` — deve avere la sua voce in `.github/dependabot.yml`, con la directory corretta.
+- ✅ **Regola operativa**: quando aggiungi o modifichi un manifest, aggiorni `.github/dependabot.yml` **nella stessa PR**. Mai "lo faccio dopo".
+- ✅ Manifest in sottocartelle: usa `directories: ["...", "..."]` per lo stesso ecosystem.
+- ✅ **Le dipendenze Python vanno vincolate a una versione.** Un `requirements.txt` con i soli nomi (`fastapi`, `requests`) è **invisibile** a Dependabot: senza versioni non arriva nessun aggiornamento e nessun alert di sicurezza, perché il dependency graph non risolve nulla. Usare `==` o un lock generato (pip-tools / uv).
+- ✅ Il pin va preso dalla versione realmente in uso nell'immagine in produzione, non scelta a caso.
+- ❌ Mai manifest "finti" per far contento Dependabot, e mai config per repo archiviati (Dependabot non li scansiona).
+- Il file è operativo **solo se è sul branch di default**: aggiungerlo in una PR non basta, va mergiata.
