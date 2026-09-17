@@ -53,7 +53,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7
+    image: redis:8
     volumes:
       - redis_data:/data
 
