@@ -28,6 +28,14 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - REDIS_URL=redis://redis:6379
       - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
+      # --- tuning del worker di scraping (i default sono nel codice) ---
+      # pausa fra uno scraping e il successivo (prima fissa a 180s nel codice)
+      - BETWEEN_SCRAPES_SECONDS=${BETWEEN_SCRAPES_SECONDS:-20}
+      # tentativi per item: 1 + un retry per ogni valore di backoff
+      - SCRAPE_MAX_ATTEMPTS=${SCRAPE_MAX_ATTEMPTS:-3}
+      - RETRY_BACKOFF_SECONDS=${RETRY_BACKOFF_SECONDS:-5,15}
+      # ogni quanto il watchdog controlla che i worker siano vivi
+      - WORKER_WATCHDOG_INTERVAL_SECONDS=${WORKER_WATCHDOG_INTERVAL_SECONDS:-60}
     # stesse dir host del BE: il BE serve /media le immagini scritte dal bot
     volumes:
       - /mnt/applicazioni/interesting-items/storage_data:/app/storage_data

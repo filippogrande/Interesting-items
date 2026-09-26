@@ -2,33 +2,31 @@
 
 Nota architetturale: questo componente NON accede al database. Tutto passa
 attraverso il BE (FastAPI) tramite app/api_client.py.
+
+In questo modulo restano gli handler Telegram e l'orchestrazione: la coda Redis
+sta in queue_store.py, il worker di scraping in worker.py, i testi dei messaggi
+in messaging.py.
 """
 import os
 import re
 import logging
 import asyncio
-import json
-from collections import defaultdict, deque
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 from aiogram import Bot, Dispatcher, types, Router
 from aiogram.filters import Command
-from redis import Redis
 from dotenv import load_dotenv
 
-from . import api_client
-from .scrapers import OK, NOT_FOUND, ERROR
+from . import api_client, messaging, queue_store, worker
+from .durations import estimate_remaining_seconds, format_duration
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 ALLOWED_TELEGRAM_USER_IDS = os.getenv("ALLOWED_TELEGRAM_USER_IDS")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:3002")
-
-redis_conn = Redis.from_url(REDIS_URL)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -45,14 +43,6 @@ DEFAULT_ALLOWED_DOMAINS = [
     "aliexpress.com",
     "it.aliexpress.com",
 ]
-
-SCRAPE_MAX_SECONDS = 10
-BETWEEN_SCRAPES_SECONDS = 180
-
-# Set Redis con gli URL "in coda o in lavorazione".
-# Serve perché il controllo anti-duplicato sul DB vede solo i prodotti GIÀ SALVATI:
-# un link ancora in coda (o in fase di scraping) non è nel DB e verrebbe riaccodato.
-PENDING_SET_KEY = "scrape_pending"
 
 
 def parse_allowed_user_ids(env_value):
@@ -93,7 +83,7 @@ def build_allowed_domains(env_value):
 ALLOWED_DOMAINS = build_allowed_domains(os.getenv("ALLOWED_DOMAINS"))
 
 
-def is_allowed_domain(netloc: str) -> bool:
+def is_allowed_domain(netloc):
     host = netloc.split(':')[0].lower()
     for d in ALLOWED_DOMAINS:
         if host == d or host.endswith('.' + d):
@@ -101,7 +91,7 @@ def is_allowed_domain(netloc: str) -> bool:
     return False
 
 
-def normalize_url(raw_url: str):
+def normalize_url(raw_url):
     try:
         p = urlparse(raw_url)
     except Exception:
@@ -121,13 +111,13 @@ def normalize_url(raw_url: str):
     return urlunparse((p.scheme, netloc, path, '', new_query, ''))
 
 
-def is_authorized(user_id: int) -> bool:
+def is_authorized(user_id):
     if ALLOWED_USERS is None:
         return True
     return user_id in ALLOWED_USERS
 
 
-def get_site_type(url: str) -> str:
+def get_site_type(url):
     try:
         netloc = urlparse(url).netloc.lower()
         if 'vinted' in netloc:
@@ -141,190 +131,9 @@ def get_site_type(url: str) -> str:
         return 'unsupported'
 
 
-# --- Coda persistente su Redis (una lista per sito) ---
-site_queues = defaultdict(deque)
-site_processing = {}
-
-
-def redis_queue_key(site: str) -> str:
-    return f"scrape_queue:{site}"
-
-
-# --- Stato "in coda / in lavorazione" (anti-duplicato) ---
-
-def mark_pending(url: str):
-    try:
-        redis_conn.sadd(PENDING_SET_KEY, url)
-    except Exception:
-        logger.exception("Impossibile marcare come pending: %s", url)
-
-
-def unmark_pending(url: str):
-    try:
-        redis_conn.srem(PENDING_SET_KEY, url)
-    except Exception:
-        logger.exception("Impossibile rimuovere il pending: %s", url)
-
-
-def is_pending(url: str) -> bool:
-    try:
-        return bool(redis_conn.sismember(PENDING_SET_KEY, url))
-    except Exception:
-        # se Redis non risponde non blocchiamo l'utente
-        logger.exception("Impossibile verificare il pending: %s", url)
-        return False
-
-
-def rebuild_pending_set():
-    """Ricostruisce il set dei pending dalle code Redis.
-
-    All'avvio le voci "in lavorazione" di un run interrotto (crash/riavvio) non
-    esistono più: ricostruire il set dalle sole code evita di lasciare un URL
-    bloccato per sempre come pending.
-    """
-    try:
-        redis_conn.delete(PENDING_SET_KEY)
-        for k in redis_conn.keys("scrape_queue:*"):
-            for raw in redis_conn.lrange(k, 0, -1):
-                try:
-                    payload = json.loads(raw)
-                    url = payload.get("url")
-                    if url:
-                        redis_conn.sadd(PENDING_SET_KEY, url)
-                except Exception:
-                    continue
-        count = redis_conn.scard(PENDING_SET_KEY)
-        logger.info("Set pending ricostruito dalle code (%d voci)", count)
-        # print (non logger) per vederlo in `docker compose logs bot` senza configurare logging
-        print(f'Set pending ricostruito dalle code ({count} voci)', flush=True)
-    except Exception:
-        logger.exception("Errore nella ricostruzione del set pending")
-
-
-def enqueue_to_redis(site: str, url: str, user_id: int, chat_id: int):
-    redis_conn.rpush(redis_queue_key(site), json.dumps({"url": url, "user_id": user_id, "chat_id": chat_id}))
-
-
-def pop_from_redis(site: str):
-    raw = redis_conn.lpop(redis_queue_key(site))
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except Exception:
-        logger.exception("Invalid payload in redis queue for %s: %s", site, raw)
-        return None
-
-
-def redis_queue_length(site=None) -> int:
-    if site is None:
-        total = 0
-        for k in redis_conn.keys("scrape_queue:*"):
-            try:
-                total += int(redis_conn.llen(k))
-            except Exception:
-                continue
-        return total
-    return int(redis_conn.llen(redis_queue_key(site)))
-
-
-def total_queue_size(site=None) -> int:
-    try:
-        return redis_queue_length(site)
-    except Exception:
-        if site is None:
-            return sum(len(queue) for queue in site_queues.values())
-        return len(site_queues[site])
-
-
-def estimate_remaining_seconds(pending_items: int) -> int:
-    if pending_items <= 0:
-        return 0
-    return pending_items * (SCRAPE_MAX_SECONDS + BETWEEN_SCRAPES_SECONDS)
-
-
-def format_duration(seconds: int) -> str:
-    if seconds <= 0:
-        return "0s"
-    minutes, secs = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    parts = []
-    if hours:
-        parts.append(f"{hours}h")
-    if minutes:
-        parts.append(f"{minutes}m")
-    if secs or not parts:
-        parts.append(f"{secs}s")
-    return " ".join(parts)
-
-
-def _normalize_result(raw) -> str:
-    """Uniforma il risultato di uno scraper a OK / NOT_FOUND / ERROR.
-
-    Gli scraper nuovi ritornano già uno di questi stati; quelli vecchi (AliExpress)
-    ritornano un bool.
-    """
-    if raw is True:
-        return OK
-    if raw is False:
-        return ERROR
-    return raw
-
-
-async def process_site_queue(site: str):
-    try:
-        while True:
-            item = pop_from_redis(site)
-            if item is None:
-                break
-            url = item.get("url")
-            chat_id = item.get("chat_id")
-            try:
-                await bot.send_message(chat_id, f"Inizio scraping: {url}")
-                if site == 'vinted':
-                    from .scrapers.vinted import scrape_vinted
-                    raw_result = await asyncio.to_thread(scrape_vinted, url)
-                elif site == 'wallapop':
-                    await bot.send_message(chat_id, "❌ Funzione wallapop non ancora implementata.")
-                    raw_result = ERROR
-                elif site == 'aliexpress':
-                    try:
-                        from .scrapers.aliexpress import scrape_aliexpress
-                        raw_result = await asyncio.to_thread(scrape_aliexpress, url)
-                    except Exception as e:
-                        await bot.send_message(chat_id, f"❌ Errore AliExpress: {e}")
-                        raw_result = ERROR
-                else:
-                    await bot.send_message(chat_id, f"❌ Sito non supportato: {url}")
-                    raw_result = ERROR
-
-                result = _normalize_result(raw_result)
-                if result == OK:
-                    await bot.send_message(chat_id, f"✅ Finito: {url}")
-                elif result == NOT_FOUND:
-                    await bot.send_message(
-                        chat_id,
-                        f"🗑️ Annuncio non più disponibile (rimosso o venduto): {url}",
-                    )
-                else:
-                    await bot.send_message(chat_id, f"❌ Errore durante scraping: {url}")
-            except Exception as e:
-                await bot.send_message(chat_id, f"❌ Errore imprevisto su {url}: {e}")
-            finally:
-                # il prodotto e' finito nel DB (se ok) o va ritentato: in ogni caso
-                # non e' piu' "in coda / in lavorazione".
-                unmark_pending(url)
-
-            remaining = total_queue_size(site)
-            if remaining > 0:
-                eta = format_duration(estimate_remaining_seconds(remaining))
-                await bot.send_message(chat_id, f"Rimangono {remaining} prodotti in coda — stima residua: circa {eta}")
-            else:
-                await bot.send_message(chat_id, "Rimangono 0 prodotti in coda")
-
-            await asyncio.sleep(BETWEEN_SCRAPES_SECONDS)
-    finally:
-        site_processing.pop(site, None)
+async def _reply_all(message, texts):
+    for text in texts:
+        await message.reply(text)
 
 
 @router.message(Command(commands=["start", "help"]))
@@ -370,7 +179,7 @@ async def handle_message(message: types.Message):
             continue
 
         # Anti-duplicato 2) già in coda o in lavorazione
-        if is_pending(normalized):
+        if queue_store.is_pending(normalized):
             await message.reply(f"⚠️ Link già in coda o in lavorazione, non lo riaccodo: {normalized}")
             continue
 
@@ -388,23 +197,17 @@ async def handle_message(message: types.Message):
             await message.reply(f"❌ Sito non supportato: {normalized}")
             continue
 
-        try:
-            enqueue_to_redis(site_type, normalized, user.id, message.chat.id)
-        except Exception:
-            site_queues[site_type].append((normalized, user.id, message.chat.id))
-        mark_pending(normalized)
+        queue_store.enqueue(site_type, normalized, user.id, message.chat.id)
+        queue_store.mark_pending(normalized)
         added += 1
-        queue_size = total_queue_size(site_type)
+
+        queue_size = queue_store.total_queue_size(site_type)
         eta = format_duration(estimate_remaining_seconds(queue_size))
-        await message.reply(
-            f"URL aggiunto in coda per {site_type}: {normalized}\n"
-            f"Posizione in coda: {queue_size}\n"
-            f"Stima residua: circa {eta}"
-        )
-        if site_type not in site_processing:
-            site_processing[site_type] = asyncio.create_task(process_site_queue(site_type))
+        await _reply_all(message, messaging.enqueue_ack(site_type, normalized, queue_size, eta))
+        worker.ensure_worker(site_type, bot)
+
     if added:
-        await message.reply(f"Totale link messi in coda: {added}")
+        await _reply_all(message, messaging.enqueue_summary(added))
 
 
 def run_polling():
@@ -417,23 +220,11 @@ def run_polling():
                 except Exception as e:
                     logger.warning("Impossibile notificare l'utente %s: %s", uid, e)
         # ricostruisce lo stato "in coda / in lavorazione" dalle code persistenti
-        rebuild_pending_set()
-        resumed = 0
-        try:
-            keys = redis_conn.keys("scrape_queue:*")
-            for k in keys:
-                try:
-                    site = k.decode().split(":", 1)[1] if isinstance(k, bytes) else str(k).split(":", 1)[1]
-                    length = int(redis_conn.llen(k))
-                    if length > 0 and site not in site_processing:
-                        site_processing[site] = asyncio.create_task(process_site_queue(site))
-                        resumed += 1
-                        print(f'Coda riavviata per {site} (items={length})', flush=True)
-                except Exception:
-                    logger.exception("Errore nel ripristinare la chiave di coda %s", k)
-        except Exception:
-            logger.exception("Errore nel controllare le code persistenti in Redis")
-        print(f'Avvio completato: code in lavorazione={resumed}', flush=True)
+        queue_store.rebuild_pending_set()
+        resumed = worker.resume_queues(bot)
+        # watchdog: rilancia il worker di un sito se muore con la coda ancora piena
+        worker.start_watchdog(bot)
+        print(f'Avvio completato: code in lavorazione={len(resumed)}', flush=True)
 
     dp.include_router(router)
     # IMPORTANTE (aiogram v3): gli hook di avvio NON si passano a `start_polling`,
