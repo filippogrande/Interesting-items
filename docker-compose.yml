@@ -31,6 +31,8 @@ services:
       # --- tuning del worker di scraping (i default sono nel codice) ---
       # pausa fra uno scraping e il successivo (prima fissa a 180s nel codice)
       - BETWEEN_SCRAPES_SECONDS=${BETWEEN_SCRAPES_SECONDS:-20}
+      # budget di tempo per singolo scraping, usato solo nelle stime della coda
+      - SCRAPE_MAX_SECONDS=${SCRAPE_MAX_SECONDS:-5}
       # tentativi per item: 1 + un retry per ogni valore di backoff
       - SCRAPE_MAX_ATTEMPTS=${SCRAPE_MAX_ATTEMPTS:-3}
       - RETRY_BACKOFF_SECONDS=${RETRY_BACKOFF_SECONDS:-5,15}

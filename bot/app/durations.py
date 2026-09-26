@@ -2,7 +2,7 @@
 import os
 
 # Budget di tempo attribuito a un singolo scraping quando stimiamo la coda.
-SCRAPE_MAX_SECONDS = int(os.getenv("SCRAPE_MAX_SECONDS", "10"))
+SCRAPE_MAX_SECONDS = int(os.getenv("SCRAPE_MAX_SECONDS", "5"))
 
 # Pausa fra uno scraping e il successivo.
 # Prima era fissa a 180s: ~3 minuti per prodotto anche a sistema sano
@@ -17,15 +17,14 @@ def estimate_remaining_seconds(pending_items):
 
 
 def format_duration(seconds):
+    """Durata in minuti, senza secondi: "22min", "1h 20min".
+
+    Si arrotonda per eccesso: sotto il minuto si dice comunque "1min".
+    """
     if seconds <= 0:
-        return "0s"
-    minutes, secs = divmod(seconds, 60)
+        return "0min"
+    minutes = -(-int(seconds) // 60)
     hours, minutes = divmod(minutes, 60)
-    parts = []
     if hours:
-        parts.append(f"{hours}h")
-    if minutes:
-        parts.append(f"{minutes}m")
-    if secs or not parts:
-        parts.append(f"{secs}s")
-    return " ".join(parts)
+        return f"{hours}h {minutes}min" if minutes else f"{hours}h"
+    return f"{minutes}min"

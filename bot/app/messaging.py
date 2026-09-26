@@ -8,38 +8,36 @@ from .scrapers import OK, NOT_FOUND, ERROR
 
 
 def enqueue_ack(site, url, position, eta):
-    """Messaggi dopo l'accodamento di un link."""
-    return [
-        f"URL aggiunto in coda per {site}: {url}\n"
-        f"Posizione in coda: {position}\n"
-        f"Stima residua: circa {eta}"
-    ]
+    """Un solo messaggio per link accodato, senza URL: l'utente sa cosa ha mandato."""
+    return [f"🔗 Link in coda per {site} — posizione {position} — stima circa {eta}"]
 
 
 def enqueue_summary(added):
-    """Messaggio finale col totale dei link accodati nello stesso messaggio Telegram."""
-    if not added:
-        return []
-    return [f"Totale link messi in coda: {added}"]
+    """Nessun messaggio di totale: la posizione è già nell'ack di ogni link."""
+    return []
 
 
 def scraping_started(url):
-    """Messaggio di inizio scraping (None = non mandare nulla)."""
-    return f"Inizio scraping: {url}"
+    """Niente messaggio di inizio: lo scraping si deduce dall'esito."""
+    return None
 
 
 def item_result(status, url, reason, remaining, eta, attempts):
-    """Messaggi dopo lo scraping di un item: esito + stato della coda."""
+    """Un solo messaggio per item: esito + stato della coda accorpato.
+
+    L'URL compare solo quando serve: esito OK no (l'utente sa cos'ha mandato),
+    annuncio sparito/errore sì (per capire quale link è andato male).
+    """
     if status == OK:
-        messages = [f"✅ Finito: {url}"]
+        head = "✅ Aggiunto al catalogo"
     elif status == NOT_FOUND:
-        messages = [f"🗑️ Annuncio non più disponibile (rimosso o venduto): {url}"]
+        head = f"🗑️ Annuncio non più disponibile (rimosso o venduto): {url}"
     else:
         detail = f": {reason}" if reason else ""
-        messages = [f"❌ Errore durante scraping{detail} — {url}"]
+        head = f"❌ Errore durante lo scraping{detail} — {url}"
+        if attempts > 1:
+            head += f" (dopo {attempts} tentativi)"
 
     if remaining > 0:
-        messages.append(f"Rimangono {remaining} prodotti in coda — stima residua: circa {eta}")
-    else:
-        messages.append("Rimangono 0 prodotti in coda")
-    return messages
+        return [f"{head} — restano {remaining} in coda (circa {eta})"]
+    return [f"{head} — coda vuota"]
