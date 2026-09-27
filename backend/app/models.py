@@ -1,13 +1,18 @@
 from typing import List, Optional
-from sqlmodel import SQLModel, Field, Relationship, NaiveDatetime
+
+from pydantic import NaiveDatetime
+from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
 
 # I timestamp sono colonne TIMESTAMP WITHOUT TIME ZONE (create da create_all):
-# vanno dichiarati NaiveDatetime e non datetime. Le versioni recenti di SQLModel
-# rifiutano i datetime naive sui campi dichiarati datetime e l'INSERT finisce in
-# StatementError: "Datetime values must have timezone information" -> 500 su
-# POST /api/products (e su ogni altra insert). Vedi i valori di default qui sotto:
-# datetime.utcnow() e' naive, quindi coerente con NaiveDatetime.
+# vanno dichiarati NaiveDatetime e non datetime. In sqlmodel 0.0.47 i campi
+# 'datetime' mappano su UTCDateTime, che richiede valori con timezone e solleva
+# "Datetime values must have timezone information" in fase di INSERT -> 500 su
+# POST /api/products (e su ogni altra insert). datetime.utcnow() e' naive, quindi
+# coerente con NaiveDatetime.
+# IMPORTANTE: NaiveDatetime e' un tipo di PYDANTIC. sqlmodel 0.0.47 NON lo
+# riesporta: 'from sqlmodel import NaiveDatetime' non importa e fa morire il BE
+# in avvio (ImportError).
 
 
 class Product(SQLModel, table=True):
@@ -25,7 +30,7 @@ class Product(SQLModel, table=True):
 
     images: List["Image"] = Relationship(back_populates="product")
     prices: List["Price"] = Relationship(back_populates="product")
-    category: Optional["Category"] = Relationship(back_populates="products")
+    category: Optional["Category"] = Relationship(back_populates="category")
 
 
 class Image(SQLModel, table=True):
