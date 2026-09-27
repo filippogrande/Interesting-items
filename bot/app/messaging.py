@@ -7,14 +7,39 @@ di non dire niente ritornando None o una lista vuota).
 from .scrapers import OK, NOT_FOUND, ERROR
 
 
-def enqueue_ack(site, url, position, eta):
-    """Un solo messaggio per link accodato, senza URL: l'utente sa cosa ha mandato."""
-    return [f"🔗 Link in coda per {site} — posizione {position} — stima circa {eta}"]
+def _queue_label(site, size):
+    """Le code sono separate per sito: l'etichetta dice sempre di quale coda parla."""
+    return f"coda {site}: {size} link"
 
 
-def enqueue_summary(added):
-    """Nessun messaggio di totale: la posizione è già nell'ack di ogni link."""
-    return []
+def enqueue_ack(site, queue_size, eta):
+    """Un link accodato: un solo messaggio, senza URL.
+
+    queue_size è la lunghezza della coda di QUEL sito (una coda per sito):
+    è quella la coda in cui il link è entrato, non un totale globale.
+    """
+    return [f"🔗 Link in coda per {site} — {_queue_label(site, queue_size)} — stima circa {eta}"]
+
+
+def enqueue_summary(added, queues):
+    """Riepilogo unico quando il messaggio conteneva più link.
+
+    Un messaggio con N link produce UNA sola risposta invece di N ack.
+    `queues` è {site: (lunghezza coda, eta)} per i soli siti coinvolti in questo
+    messaggio: se i link sono di siti diversi si vedono le code separate.
+    Ritorna [] quando non c'è niente da riepilogare (0 o 1 link: in quel caso
+    parla enqueue_ack).
+    """
+    if added <= 1:
+        return []
+    if len(queues) == 1:
+        site, (size, eta) = next(iter(queues.items()))
+        return [f"📥 {added} link in coda — {_queue_label(site, size)} — stima circa {eta}"]
+    parts = [
+        f"{_queue_label(site, size)} (circa {eta})"
+        for site, (size, eta) in sorted(queues.items())
+    ]
+    return [f"📥 {added} link in coda — " + " — ".join(parts)]
 
 
 def scraping_started(url):
