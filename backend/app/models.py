@@ -1,6 +1,13 @@
 from typing import List, Optional
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, NaiveDatetime
 from datetime import datetime
+
+# I timestamp sono colonne TIMESTAMP WITHOUT TIME ZONE (create da create_all):
+# vanno dichiarati NaiveDatetime e non datetime. Le versioni recenti di SQLModel
+# rifiutano i datetime naive sui campi dichiarati datetime e l'INSERT finisce in
+# StatementError: "Datetime values must have timezone information" -> 500 su
+# POST /api/products (e su ogni altra insert). Vedi i valori di default qui sotto:
+# datetime.utcnow() e' naive, quindi coerente con NaiveDatetime.
 
 
 class Product(SQLModel, table=True):
@@ -12,9 +19,9 @@ class Product(SQLModel, table=True):
     metadata: Optional[dict] = None
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     archived: bool = Field(default=False)
-    scraped_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: Optional[NaiveDatetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    updated_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
 
     images: List["Image"] = Relationship(back_populates="product")
     prices: List["Price"] = Relationship(back_populates="product")
@@ -41,7 +48,7 @@ class Price(SQLModel, table=True):
     price_category: Optional[str] = None
     condition: Optional[str] = None
     platform: Optional[str] = None
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     sold: bool = Field(default=False)
     source_url: Optional[str] = None
 
