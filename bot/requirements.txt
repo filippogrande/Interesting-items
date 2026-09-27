@@ -1,6 +1,9 @@
-aiogram
-redis
-requests
-beautifulsoup4
-python-dotenv
-playwright
+# Versioni REALI misurate nell'immagine in produzione (pip freeze, 27/9/26).
+# Pinnate perche' senza specifier ogni rebuild su main risolveva versioni nuove
+# (playwright compreso: browser potenzialmente diversi da quelli attesi).
+aiogram==3.31.0
+redis==8.1.0
+requests==2.34.2
+beautifulsoup4==4.15.0
+python-dotenv==1.2.3
+playwright==1.63.0
