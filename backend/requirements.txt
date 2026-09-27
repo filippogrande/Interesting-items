@@ -1,14 +1,15 @@
-fastapi
-uvicorn[standard]
-aiogram
-rq
-redis
-sqlmodel
-alembic
-python-dotenv
-requests
-beautifulsoup4
-python-multipart
-pytest
-httpx
-playwright
+# Versioni REALI misurate nell'immagine in produzione (pip freeze, 27/9/26).
+# Pinnate perche' senza specifier ogni rebuild su main risolveva versioni nuove:
+# il 27/9 una sqlmodel piu' recente ha iniziato a rifiutare i timestamp naive e
+# ogni INSERT in product e' diventato un 500 (POST /api/products).
+# Rimosse le dipendenze del vecchio bot, non importate da nessun modulo di
+# backend/: aiogram, rq, redis, playwright, requests, beautifulsoup4, pytest, httpx.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+sqlmodel==0.0.47
+SQLAlchemy==2.0.54
+pydantic==2.13.5
+alembic==1.20.0
+psycopg2-binary==2.9.13
+python-dotenv==1.2.3
+python-multipart==0.0.32
