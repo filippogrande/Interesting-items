@@ -155,6 +155,7 @@ async def handle_message(message: types.Message):
         return
 
     added = 0
+    added_sites = {}  # {site: quanti link accodati in QUESTO messaggio}
     seen_in_message = set()  # dedup: stesso link ripetuto nello stesso messaggio
     for raw_url in urls:
         normalized = normalize_url(raw_url)
@@ -200,14 +201,22 @@ async def handle_message(message: types.Message):
         queue_store.enqueue(site_type, normalized, user.id, message.chat.id)
         queue_store.mark_pending(normalized)
         added += 1
-
-        queue_size = queue_store.total_queue_size(site_type)
-        eta = format_duration(estimate_remaining_seconds(queue_size))
-        await _reply_all(message, messaging.enqueue_ack(site_type, normalized, queue_size, eta))
+        added_sites[site_type] = added_sites.get(site_type, 0) + 1
         worker.ensure_worker(site_type, bot)
 
-    if added:
-        await _reply_all(message, messaging.enqueue_summary(added))
+    # I messaggi di accodamento si mandano DOPO il giro, uno solo:
+    # con 1 link l'ack del link, con più link un riepilogo (niente N messaggi).
+    if added == 1:
+        site = next(iter(added_sites))
+        queue_size = queue_store.total_queue_size(site)
+        eta = format_duration(estimate_remaining_seconds(queue_size))
+        await _reply_all(message, messaging.enqueue_ack(site, queue_size, eta))
+    elif added > 1:
+        queues = {}
+        for site in added_sites:
+            size = queue_store.total_queue_size(site)
+            queues[site] = (size, format_duration(estimate_remaining_seconds(size)))
+        await _reply_all(message, messaging.enqueue_summary(added, queues))
 
 
 def run_polling():
