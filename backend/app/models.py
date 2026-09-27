@@ -30,7 +30,7 @@ class Product(SQLModel, table=True):
 
     images: List["Image"] = Relationship(back_populates="product")
     prices: List["Price"] = Relationship(back_populates="product")
-    category: Optional["Category"] = Relationship(back_populates="category")
+    category: Optional["Category"] = Relationship(back_populates="products")
 
 
 class Image(SQLModel, table=True):
