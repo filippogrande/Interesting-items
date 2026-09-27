@@ -1,9 +1,20 @@
 from sqlmodel import SQLModel, Field, create_engine, Session, Relationship, Column, Enum
 from sqlalchemy import ForeignKey
+from pydantic import NaiveDatetime
 from typing import Optional, List
 import enum
 import os
 from datetime import datetime
+
+# ATTENZIONE (sqlmodel 0.0.47): i campi annotati 'datetime' mappano su UTCDateTime,
+# che RICHIEDE valori con timezone e solleva in fase di INSERT:
+#   "Datetime values must have timezone information. Use datetime.now(timezone.utc),
+#    or annotate the field with NaiveDatetime for naive storage."
+# -> 500 su POST /api/products e su ogni altra scrittura.
+# Le nostre colonne sono 'timestamp without time zone' e i valori arrivano da
+# datetime.utcnow() (naive UTC), quindi i timestamp vanno dichiarati NaiveDatetime,
+# che seleziona DateTime(timezone=False): nessuna migrazione, dati invariati.
+# NaiveDatetime e' un tipo di PYDANTIC: sqlmodel NON lo riesporta.
 
 # Percorso file DB: usa DATABASE_URL se presente, altrimenti fallback a sqlite
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -77,9 +88,9 @@ class Product(SQLModel, table=True):
     product_metadata: Optional[str] = None  # JSON string
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     archived: bool = Field(default=False)
-    scraped_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: Optional[NaiveDatetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    updated_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     category: Optional[Category] = Relationship(back_populates="products")
     images: List["Image"] = Relationship(back_populates="product")
     prices: List["Price"] = Relationship(back_populates="product")
@@ -96,8 +107,8 @@ class Bundle(SQLModel, table=True):
     source_domain: Optional[str] = None
     bundle_metadata: Optional[str] = None  # JSON string
     notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    updated_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
 
 class Image(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -117,7 +128,7 @@ class Price(SQLModel, table=True):
     price_category: Optional[str] = None
     condition: Optional[ItemCondition] = Field(default=None, sa_column=Column(Enum(ItemCondition)))
     platform: Optional[str] = None
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     sold: bool = Field(default=False)
     product: Optional[Product] = Relationship(back_populates="prices")
 
@@ -126,7 +137,7 @@ class SourceUrl(SQLModel, table=True):
     product_id: int = Field(sa_column=Column(ForeignKey("product.id", ondelete="CASCADE")))
     url: str
     domain: Optional[str] = None
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     product: Optional[Product] = Relationship(back_populates="source_urls")
 
 def init_db():
