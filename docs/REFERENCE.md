@@ -202,14 +202,14 @@ qui si segnalano solo.
 - `frontend/src/components/ProductDetailPanel.tsx` — 23.644 byte.
 - `frontend/src/components/MergeView.tsx` — 18.550 byte.
 - Etichetta della piattaforma duplicata: `backend/app/api.py::_label_from_host()` e
-  `frontend/src/utils/format.ts::labelFromHost()`. Due implementazioni della stessa
-  logica (divergono nel caso a due livelli: il BE ritorna `vinted`, il FE `vinted it`).
+  `frontend/src/utils/format.ts::labelFromHost()`. Stessa logica in due implementazioni che
+  divergono: per un host a tre parti (`it.ebay.it`) il BE ritorna `ebay`, il FE `ebay it`.
 - `backend/app/main.py` — scaffold FastAPI legacy con solo `root()`: **non** e'
   l'entrypoint (lo e' `backend/app/server.py`). Da rimuovere.
 - `frontend/src/components/ProductList.tsx` — non importato da `frontend/src/main.tsx`:
   probabile residuo del refactor. `dashboard.tsx` e `ProductDetail.tsx` vanno
   verificati allo stesso modo.
-- Script di debug/ prova nel tree (vietati dalle regole): in `backend/app/`
+- Script di debug/prova nel tree (vietati dalle regole): in `backend/app/`
   `test_vinted.py`, `test_aliexpress.py`, `run_single_scrape.py`,
   `run_extract_aliexpress_variants.py`, `export_aliexpress_compact.py`, `filter_images.py`;
   in root `beautify_html.py`, `download_html.py`, `playwright_save_rendered_html.py`.
@@ -219,3 +219,6 @@ qui si segnalano solo.
   `limit`/`offset` del BE. Segnalato, non corretto.
 - Anti-bot: Vinted va scrapato con Playwright (`wait_until="domcontentloaded"`);
   `networkidle` va in timeout perche' la pagina si ricarica di continuo.
+- `get_site_type()` (`bot/app/main.py`) riconosce solo `vinted`, `wallapop` e
+  `aliexpress`: i domini accettati `subito.it` ed `ebay.it` arrivano al messaggio
+  "sito non supportato". Comportamento attuale, non un bug introdotto.
