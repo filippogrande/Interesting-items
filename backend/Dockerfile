@@ -1,8 +1,9 @@
 # Base image pinnata (prima era playwright/python:latest: ogni rebuild poteva
 # cambiare browser e sistema sotto il BE). Il BE non usa playwright, ma l'immagine
-# resta quella per non cambiare sistema operativo e versione di Python
-# (in produzione gira python3.10 = Ubuntu jammy).
-FROM mcr.microsoft.com/playwright/python:v1.63.0-jammy
+# resta quella per non cambiare sistema operativo e versione di Python.
+# v1.63.0-noble = Ubuntu 24.04 + Python 3.12: la 3.10 delle jammy e' EOL da
+# ottobre 2026 e bloccherebbe SQLAlchemy 2.1 (richiede Python >=3.11).
+FROM mcr.microsoft.com/playwright/python:v1.63.0-noble
 
 WORKDIR /app
 
