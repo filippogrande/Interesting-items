@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from storage.db import engine, Product, Image, Price, SourceUrl, Category, Tag, ProductTagLink, Bundle, BundleProductLink, TagKind, init_db
 from typing import Dict
-from sqlalchemy import func
 
 app = FastAPI(title="Product Scraper API")
 app.add_middleware(
@@ -571,7 +570,7 @@ def merge_products(payload: ProductMergeIn):
         if not main or not source:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # --- campi singoli (valori finali già scelti/modificati dall'editor) ---
+        # --- campi singoli (valori finali gia' scelti/modificati dall'editor) ---
         if payload.title is not None:
             main.title = payload.title
         if payload.description is not None:
@@ -887,9 +886,9 @@ def tags_stats():
         links = session.exec(select(ProductTagLink)).all()
         counts: Dict[int, int] = {}
         product_ids_with_tag = set()
-        for l in links:
-            counts[l.tag_id] = counts.get(l.tag_id, 0) + 1
-            product_ids_with_tag.add(l.product_id)
+        for link in links:
+            counts[link.tag_id] = counts.get(link.tag_id, 0) + 1
+            product_ids_with_tag.add(link.product_id)
 
         tag_list = [
             TagWithCount(
