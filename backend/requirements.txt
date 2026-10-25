@@ -4,10 +4,13 @@
 # ogni INSERT in product e' diventato un 500 (POST /api/products).
 # Rimosse le dipendenze del vecchio bot, non importate da nessun modulo di
 # backend/: aiogram, rq, redis, playwright, requests, beautifulsoup4, pytest, httpx.
+# SQLAlchemy resta sulla 2.0.x: la 2.1 richiede Python >=3.11 e l'immagine del BE
+# (mcr.microsoft.com/playwright/python:v1.63.0-jammy) ha Python 3.10, quindi
+# `pip install SQLAlchemy==2.1.x` fallisce e il build dell'immagine si rompe.
 fastapi==0.143.0
 uvicorn[standard]==0.54.0
 sqlmodel==0.0.48
-SQLAlchemy==2.1.4
+SQLAlchemy==2.0.55
 pydantic==2.14.1
 alembic==1.20.0
 psycopg2-binary==2.9.13
