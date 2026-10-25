@@ -56,12 +56,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # stessa major del builder in frontend/Dockerfile (node:22-alpine):
+          # Vite 8 richiede Node 20.19+ / 22.12+
+          node-version: '22'
       - name: Install dependencies
         run: npm ci
       - name: Audit
         run: npm audit --audit-level=high
+      # Non c'e' uno step di test: il package.json non definisce uno script
+      # `test` e non c'e' nessun test runner installato. Il build e' gia' la
+      # verifica del FE; i test si aggiungono quando esiste un runner.
       - name: Build
         run: npm run build
-      - name: Test
-        run: npm test -- --passWithNoTests
