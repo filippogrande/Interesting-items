@@ -570,7 +570,7 @@ def merge_products(payload: ProductMergeIn):
         if not main or not source:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # --- campi singoli (valori finali gia' scelti/modificati dall'editor) ---
+        # --- campi singoli (valori finali già scelti/modificati dall'editor) ---
         if payload.title is not None:
             main.title = payload.title
         if payload.description is not None:
