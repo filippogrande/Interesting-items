@@ -1,16 +1,20 @@
-# Interesting Items - Mappa Funzionale (FEATURES)
+# FEATURES — mappa funzionale del frontend
 
-> Mappa macro-funzionale e sotto-funzioni del frontend. Aggiornata a seguito dello split di `main.tsx` in hooks + componenti e del redesign della vista Merge.
-> Ultimo aggiornamento: 16 settembre 2026
+<!-- Tipo: REFERENCE. I fatti: cosa fa ogni vista e dove vive. -->
+<!-- Come funziona il sistema nel suo insieme: docs/ARCHITECTURE.md. -->
+<!-- Ultimo aggiornamento: 24 ottobre 2026 -->
+
+Mappa macro-funzionale e sotto-funzioni del **FE**, aggiornata a seguito dello split di
+`main.tsx` in hooks + componenti e del redesign della vista Merge.
 
 ## 1. Dashboard (vista principale)
 
-- **Lista prodotti** — elenco completo con card (cover, titolo, origine, data, conteggi img/prezzi/bundle, prezzo più recente)
+- **Lista prodotti** — elenco completo con card (cover, titolo, origine, data, conteggi img/prezzi/bundle, prezzo piu' recente)
 - **Ricerca** — filtro per testo (titolo/descrizione/origine)
 - **Reset filtri** — azzera ricerca e filtri attivi
 - **Stats grid (6 card)** — Prodotti, Immagini, Prezzi, Sorgenti, Unisci i prodotti, Tag
 - **Auto-selezione** — al caricamento apre automaticamente il primo prodotto nel pannello dettaglio
-- **Pannello Dettaglio** — affiancato alla lista (vedi §2)
+- **Pannello Dettaglio** — affiancato alla lista (vedi sez. 2)
 
 ## 2. Pannello Dettaglio Prodotto (`ProductDetailPanel`)
 
@@ -30,15 +34,15 @@
 ## 3. Viewer Immagini (`LightboxViewer`)
 
 - Lightbox fullscreen
-- Navigazione ‹ / ›
+- Navigazione `<` / `>`
 - Chiusura con Escape o click fuori
-- Blocco scroll pagina mentre è aperto
+- Blocco scroll pagina mentre e' aperto
 
 ## 4. Vista Tags (`TagsView`)
 
 - **Stats tag** — conteggi per tag + conteggio non-taggati
 - **Filtro per tag** — seleziona un tag per filtrare la lista
-- **Filtro per sito** — filtra per fonte (Vinted/AliExpress/…)
+- **Filtro per sito** — filtra per fonte (Vinted/AliExpress/...)
 - **Escludi tag** — pannello espandibile con lista gerarchica, chip selezionati, azzera
 - **Navigazione** — back / refresh
 
@@ -52,19 +56,21 @@
 La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`).
 
 ### 6.1 Selezione (`chooser`)
-- **Due colonne** — `Main` (prodotto da mantenere) e `Da mergiare` (prodotto che verrà eliminato)
-- **Selezione indipendente** — ogni colonna esclude il prodotto scelto nell'altra: non è possibile selezionare lo stesso oggetto su entrambi i lati
+
+- **Due colonne** — `Main` (prodotto da mantenere) e `Da mergiare` (prodotto che verra' eliminato)
+- **Selezione indipendente** — ogni colonna esclude il prodotto scelto nell'altra
 - **Scroll interno + card pinnata in alto** — il prodotto selezionato resta visibile mentre si scorre la lista (`position: sticky` + `overflowY: auto`)
 - **Prosegui** — abilitato solo quando entrambi i prodotti sono scelti; apre la fase di confronto
 
 ### 6.2 Confronto (`editor`)
-- **Due metà fisse** — a sinistra i valori del `Main`, a destra quelli `Da mergiare`
-- **Campi singoli** — Titolo, Descrizione, Brand, Origine, Archiviato: clic sul valore per sceglierlo (evidenziato), il valore scelto è poi modificabile nel pannello "Valori finali"
-- **Campi multipli** — Immagini, Prezzi+link, Tag: **unione automatica dei due prodotti**, con X per rimuovere (↺ per ripristinare)
+
+- **Due meta' fisse** — a sinistra i valori del `Main`, a destra quelli `Da mergiare`
+- **Campi singoli** — Titolo, Descrizione, Brand, Origine, Archiviato: clic sul valore per sceglierlo, il valore scelto e' poi modificabile nel pannello "Valori finali"
+- **Campi multipli** — Immagini, Prezzi+link, Tag: **unione automatica dei due prodotti**, con X per rimuovere
 - **Prezzi e link sono coppie legate** — una X rimuove entrambi (sono accoppiati per indice nel modello)
-- **← Indietro** (in alto a sinistra) — torna alla selezione **conservando** selezioni e modifiche
+- **Indietro** (in alto a sinistra) — torna alla selezione **conservando** selezioni e modifiche
 - **Salva merge** (in alto a destra) — invia al BE le liste finali (`keep_image_ids`, `keep_price_ids`, `keep_source_url_ids`, `tag_ids`) + i valori dei campi singoli
-- **Refresh dopo il salvataggio** — a merge concluso l'App ricarica il **dettaglio del prodotto principale** (che ora contiene anche immagini/prezzi/link/tag arrivati dal prodotto mergiato) e **la lista prodotti**; senza questo, un merge successivo partirebbe da dati stantii (es. si vedrebbero solo i prezzi originali)
+- **Refresh dopo il salvataggio** — a merge concluso l'App ricarica il **dettaglio del prodotto principale** e **la lista prodotti**; senza questo, un merge successivo partirebbe da dati stantii
 
 ## 7. Creazione Prodotto (`CreationModal`)
 
@@ -77,12 +83,11 @@ La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`
 - Pulsante "Nuovo prodotto"
 - Footer con versione
 
----
-
-## Struttura del codice (dove vive ogni funzionalità)
+## Struttura del codice (dove vive ogni funzionalita')
 
 ### Componenti (`frontend/src/components/`)
-- `ProductDetailPanel.tsx` — pannello dettaglio + edit mode (sezione più complessa)
+
+- `ProductDetailPanel.tsx` — pannello dettaglio + edit mode (sezione piu' complessa)
 - `MergeView.tsx` — vista Unisci prodotti (fasi `chooser` e `editor`)
 - `TagsView.tsx` — vista Tag
 - `SourcesView.tsx` — vista Sorgenti
@@ -90,8 +95,12 @@ La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`
 - `CreationModal.tsx` — modale nuovo prodotto
 - `LightboxViewer.tsx` — viewer immagini fullscreen
 - `Stats.tsx` — `StatCard` e `Kpi` riusabili
+- `ProductList.tsx`, `ProductDetail.tsx`, `dashboard.tsx` — **non importati da
+  `main.tsx`**: probabili residui del refactor (segnalati in
+  `docs/REFERENCE.md`, sezione "Limiti noti").
 
 ### Hook (`frontend/src/hooks/`)
+
 - `useProducts` — lista, loading, error, ricerca, filtri tag/sito/escludi, stats
 - `useProductDetail` — selezione, draft, editing, viewer, immagini, duplica
 - `useMerge` — fase merge (`chooser`/`editor`), candidato, draft campi singoli, liste keep (immagini/prezzi/link/tag), commit
@@ -100,14 +109,15 @@ La vista ha **due fasi** (stato `mergePhase` in `useMerge`: `chooser` | `editor`
 - `useSourceWebsites` — stats siti
 
 ### Orchestratore
-- `main.tsx` — `App()` compone gli hook e rende le viste in base alla tab attiva; per il merge espone `commitMergeAndRefresh` (commit + ricarica dettaglio e lista)
 
----
+- `main.tsx` — `App()` compone gli hook e rende le viste in base alla tab attiva; per il merge espone `commitMergeAndRefresh()` (commit + ricarica dettaglio e lista)
 
 ## Altri componenti del progetto
 
 Questa mappa copre il **FE**. Gli altri due componenti sono:
+
 - **BE** (`backend/`) — API FastAPI + modelli DB
 - **BOT** (`bot/`) — bot Telegram + scraper (Vinted, AliExpress)
 
-Vedi `PROJECT_ARCHITECTURE.md` per la struttura completa.
+Struttura completa, flusso e deploy: `docs/ARCHITECTURE.md`. Mappa richiesta -> file:
+`docs/REFERENCE.md`.
