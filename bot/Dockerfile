@@ -1,6 +1,6 @@
 # Base image pinnata sulla stessa versione di playwright del requirements.txt
 # (prima :latest: ogni rebuild poteva cambiare il chromium usato dallo scraper).
-FROM mcr.microsoft.com/playwright/python:v1.63.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.64.1-jammy
 
 WORKDIR /app
 
