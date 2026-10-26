@@ -6,7 +6,7 @@
 # backend/: aiogram, rq, redis, playwright, requests, beautifulsoup4, pytest, httpx.
 # L'immagine del BE e' su Python 3.12 (playwright/python:v1.63.0-noble): SQLAlchemy
 # 2.1 richiede Python >=3.11, quindi la 2.1.x si puo' usare.
-fastapi==0.143.0
+fastapi==0.146.0
 uvicorn[standard]==0.54.0
 sqlmodel==0.0.48
 SQLAlchemy==2.1.6
