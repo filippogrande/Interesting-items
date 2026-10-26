@@ -6,4 +6,4 @@ redis==8.1.0
 requests==2.34.2
 beautifulsoup4==4.15.0
 python-dotenv==1.2.4
-playwright==1.63.0
+playwright==1.64.0
