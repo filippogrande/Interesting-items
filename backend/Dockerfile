@@ -3,7 +3,7 @@
 # resta quella per non cambiare sistema operativo e versione di Python.
 # v1.63.0-noble = Ubuntu 24.04 + Python 3.12: la 3.10 delle jammy e' EOL da
 # ottobre 2026 e bloccherebbe SQLAlchemy 2.1 (richiede Python >=3.11).
-FROM mcr.microsoft.com/playwright/python:v1.63.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.64.1-noble
 
 WORKDIR /app
 
