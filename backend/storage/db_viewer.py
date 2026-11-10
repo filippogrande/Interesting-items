@@ -1,4 +1,4 @@
-from db import Product, Image, get_products
+from db import get_products
 
 if __name__ == "__main__":
     prodotti = get_products()

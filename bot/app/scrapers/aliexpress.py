@@ -123,7 +123,6 @@ def _find_balanced_json(text, start_pos):
 
 
 def extract_variants_from_html(html: str):
-    res = {}
     patterns = ['window.runParams', 'skuBase', 'skuMap', 'SKU_BASE', 'productDetail']
     candidates = []
     for m in re.finditer(r'<script[^>]*>(.*?)</script>', html, flags=re.DOTALL | re.IGNORECASE):
